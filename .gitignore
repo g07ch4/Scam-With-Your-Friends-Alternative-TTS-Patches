@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+dist/
+worker/*.exe
+*.log
+remote-voices/

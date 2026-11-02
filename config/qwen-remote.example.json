@@ -1,0 +1,18 @@
+{
+  "url": "http://192.168.1.50:8000/v1/audio/speech",
+  "api_key": "",
+  "model": "Qwen/Qwen3-TTS-12Hz-0.6B-Base",
+  "voice": "default",
+  "response_format": "wav",
+  "pcm_sample_rate": 24000,
+  "timeout_seconds": 25,
+  "send_language": true,
+  "send_reference_audio": true,
+  "reference_audio_field": "ref_audio",
+  "extra_body": {
+    "task_type": "Base",
+    "x_vector_only_mode": true
+  },
+  "voice_map": {},
+  "dump_references": true
+}
