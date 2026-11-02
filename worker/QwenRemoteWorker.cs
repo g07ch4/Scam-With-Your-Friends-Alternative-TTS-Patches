@@ -174,7 +174,11 @@ static class Worker
         body["response_format"] = format;
         if (Bool("send_language", true)) body["language"] = language;
         if (Bool("send_reference_audio", false) && reference != null)
-            body[Str("reference_audio_field", "ref_audio")] = "data:audio/wav;base64," + Convert.ToBase64String(EncodeWav(reference));
+        {
+            string wav = Convert.ToBase64String(EncodeWav(reference));
+            body[Str("reference_audio_field", "ref_audio")] =
+                Str("reference_audio_encoding", "data_url") == "base64" ? wav : "data:audio/wav;base64," + wav;
+        }
         var extra = Map("extra_body");
         if (extra != null)
             foreach (var pair in extra) body[pair.Key] = pair.Value;

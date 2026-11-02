@@ -137,6 +137,15 @@ class WorkerTest(unittest.TestCase):
         self.assertTrue(body["ref_audio"].startswith("data:audio/wav;base64,UklGR"))
         self.assertEqual(MockServer.requests[1][1]["ref_audio"], body["ref_audio"])
 
+    def test_raw_base64_reference_in_custom_field(self):
+        p = self.start(reference_audio_field="audio_sample", reference_audio_encoding="base64", extra_body={})
+        self.loaded(p)
+        self.synth(p, "Hallo", self.reference)
+        body = MockServer.requests[0][1]
+        self.assertTrue(body["audio_sample"].startswith("UklGR"))
+        self.assertNotIn("ref_audio", body)
+        self.assertNotIn("task_type", body)
+
     def test_server_error_is_reported_and_worker_survives(self):
         p = self.start()
         self.loaded(p)

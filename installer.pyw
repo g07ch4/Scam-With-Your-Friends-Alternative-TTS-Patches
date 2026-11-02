@@ -145,6 +145,7 @@ class Installer(tk.Tk):
                 w.configure(state="normal" if on else "disabled")
 
     def _load_config(self, config):
+        self.loaded_config = dict(config)  # keeps settings the form does not show
         for key, var in self.fields.items():
             var.set(str(config.get(key, "")))
         self.fields["response_format"].set(config.get("response_format", "wav"))
@@ -169,7 +170,8 @@ class Installer(tk.Tk):
         url = self.fields["url"].get().strip()
         if not url.startswith(("http://", "https://")):
             raise PatchError("Server-URL muss mit http:// oder https:// beginnen.")
-        return {
+        config = dict(self.loaded_config)
+        config.update({
             "url": url,
             "api_key": self.fields["api_key"].get().strip(),
             "model": self.fields["model"].get().strip(),
@@ -183,7 +185,8 @@ class Installer(tk.Tk):
             "extra_body": extra,
             "voice_map": self.voice_map,
             "dump_references": self.dump_references.get(),
-        }
+        })
+        return config
 
     def _game(self):
         return Game(self.game_dir.get().strip())

@@ -9,6 +9,7 @@
   "send_language": true,
   "send_reference_audio": true,
   "reference_audio_field": "ref_audio",
+  "reference_audio_encoding": "data_url",
   "extra_body": {
     "task_type": "Base",
     "x_vector_only_mode": true

@@ -136,27 +136,23 @@ Spiel ──stdin/stdout──▶ QwenTtsWorker.exe (Proxy) ──HTTP──▶ 
 - Als Antwort wird WAV akzeptiert (jede Sample-Rate und Kanalzahl, 8/16/24/32 Bit oder
   Float). Alternativ `pcm` (16 Bit roh), das schon während des Downloads abgespielt wird.
 
-### Server einrichten (Beispiel vLLM-Omni)
+### Welcher Server?
 
-Auf einem Linux-Rechner mit NVIDIA-GPU:
+Die Liste kompatibler Server steht in
+**[docs/SERVER_COMPAT.md](docs/SERVER_COMPAT.md)**. Sie enthält für jeden Server einen
+Link zur Einrichtungsanleitung und eine fertige Konfiguration.
 
-```bash
-pip install vllm-omni
-```
+| Server | Stimme pro Figur | Bewertung |
+|--------|------------------|-----------|
+| vLLM-Omni | ✅ automatisch | empfohlen, Standard-Konfiguration |
+| Qwen3-TTS-Openai-Fastapi (groxaxo) | ✅ automatisch | kompatibel, auch CPU/Docker |
+| qwen3_audio_api (second-state) | ✅ automatisch | kompatibel |
+| Qwen3-TTS-Openai-Fastapi (dingausmwald), LocalAI | 🟡 über Profile + `voice_map` | eingeschränkt |
+| Kokoro-FastAPI | ❌ feste Stimmen, kein Deutsch | nur feste Stimmen |
+| openedai-speech | ❌ | archiviert |
 
-```bash
-vllm serve Qwen/Qwen3-TTS-12Hz-0.6B-Base --omni --host 0.0.0.0 --port 8000
-```
-
-Im Installer trägst du dann `http://<IP-des-Servers>:8000/v1/audio/speech` ein. Die
-Felder für die Stimmprobe (`ref_audio`, `task_type`, `x_vector_only_mode`) hängen vom
-Server und seiner Version ab. Mit **Verbindung testen** siehst du sofort, ob er sie
-akzeptiert.
-
-**Server ohne Voice-Cloning** (z. B. Kokoro-FastAPI, openedai-speech):
-- „Stimmprobe mitsenden“ ausschalten und *Zusätzliche Felder* auf `{}` setzen.
-- Als *Stimme* eine Stimme des Servers eintragen, z. B. `af_bella`.
-- Eigene Stimmen pro Figur ordnest du über `voice_map` zu (siehe unten).
+Die Einstufung stammt aus der Doku der Projekte; getestet habe ich gegen keinen echten
+Server. Mit **Verbindung testen** im Installer prüfst du deinen Server sofort.
 
 ### Konfiguration
 
@@ -174,6 +170,7 @@ Vorlage: [config/qwen-remote.example.json](config/qwen-remote.example.json).
 | `send_language` | Sendet die Sprache als `language` mit (`English`, `German`, …). |
 | `send_reference_audio` | Sendet die Stimmprobe der Figur mit. |
 | `reference_audio_field` | Feldname für die Stimmprobe (Standard `ref_audio`). |
+| `reference_audio_encoding` | `data_url` (`data:audio/wav;base64,…`, Standard) oder `base64` (rohes Base64). |
 | `extra_body` | Wird 1:1 in jeden Request übernommen. |
 | `voice_map` | Ordnet Stimmproben-Hashes Server-Stimmen zu, z. B. `{"88235bfe873b": "jake"}`. |
 | `dump_references` | Speichert jede Stimmprobe einmal als `remote-voices\<hash>.wav`. Diese Dateien kannst du auf dem Server als feste Stimmen anlegen und über `voice_map` zuordnen. |

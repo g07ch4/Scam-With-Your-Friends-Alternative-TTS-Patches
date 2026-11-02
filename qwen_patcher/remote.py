@@ -32,8 +32,9 @@ def build_request(config, text, language="English"):
     if config.get("send_language", True):
         body["language"] = language
     if config.get("send_reference_audio", False):
+        wav = base64.b64encode(_reference_wav()).decode()
         body[config.get("reference_audio_field", "ref_audio")] = \
-            "data:audio/wav;base64," + base64.b64encode(_reference_wav()).decode()
+            wav if config.get("reference_audio_encoding") == "base64" else "data:audio/wav;base64," + wav
     body.update(config.get("extra_body") or {})
     return body
 
