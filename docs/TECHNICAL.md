@@ -1,14 +1,14 @@
-# Technische Details
+# Technical details
 
-Das Spiel ist ein Unity-Mono-Build. Die Qwen3-TTS-Integration liegt im Namespace
-`Kolkata.QwenTts` in `Assembly-CSharp.dll`. Die Synthese selbst übernimmt ein separater
-Prozess, `StreamingAssets/kolkata-qwen-runtime/QwenTtsWorker.exe`. Das ist eine kleine
-.NET-Anwendung, die per P/Invoke `audiocpp.dll` (audio.cpp/ggml, CUDA oder Vulkan) nutzt.
+The game is a Unity Mono build. The Qwen3 TTS integration lives in the `Kolkata.QwenTts`
+namespace in `Assembly-CSharp.dll`. Synthesis itself happens in a separate process,
+`StreamingAssets/kolkata-qwen-runtime/QwenTtsWorker.exe`: a small .NET application that
+calls `audiocpp.dll` (audio.cpp/ggml, CUDA or Vulkan) through P/Invoke.
 
-## Hardware-Check
+## Hardware check
 
-`QwenWorkerClient.TryChooseBackend` übergibt Werte aus `SystemInfo` und
-`GlobalMemoryStatusEx` an:
+`QwenWorkerClient.TryChooseBackend` passes values from `SystemInfo` and
+`GlobalMemoryStatusEx` to:
 
 ```csharp
 static bool HardwareEligible(bool windows64, int ramMb, long availableMb, int threads,
@@ -23,14 +23,14 @@ static bool HardwareEligible(bool windows64, int ramMb, long availableMb, int th
 }
 ```
 
-Patch 1 ändert die vier Konstanten (`ldc.i4`-Operanden bzw. `ldc.i4.<n>`). `--allow-cpu`
-ersetzt `ldloc.0` (gpu) im Rückgabeausdruck durch `ldc.i4.1`. Patch 2 ersetzt
-`ldarg.0; ldloc.0` am Anfang des Rückgabeausdrucks durch `ldc.i4.1; ret`.
+Patch 1 changes the four constants (`ldc.i4` operands and `ldc.i4.<n>`). `--allow-cpu`
+replaces `ldloc.0` (gpu) in the return expression with `ldc.i4.1`. Patch 2 replaces
+`ldarg.0; ldloc.0` at the start of the return expression with `ldc.i4.1; ret`.
 
-Alle Änderungen haben dieselbe Länge wie das Original. Methodenheader, Tokens und
-Sprungziele bleiben gültig, und der Code nach `ret` ist zwar unerreichbar, aber gültiges IL.
+Every change has the same length as the original. Method headers, tokens and branch
+targets stay valid, and the code after `ret` is unreachable but still valid IL.
 
-## Modell-Download
+## Model download
 
 In `QwenTtsModels.<RefreshPreference>d__23.MoveNext`:
 
@@ -41,46 +41,45 @@ IL_010B: ldc.i4.3
 IL_010C: call    QwenTtsModels::SetState(QwenDownloadState)   ; 3 = Ready
 ```
 
-Mit Patch 2 gilt das Modell immer als vorhanden. Der Proxy-Worker ignoriert den
-Modellpfad.
+With patch 2 the model always counts as installed. The proxy worker ignores the model
+path.
 
-## Worker-Protokoll
+## Worker protocol
 
-Binär über stdin/stdout (`BinaryWriter`/`BinaryReader`; Strings mit 7-Bit-Längenpräfix
-in UTF-8).
+Binary over stdin/stdout (`BinaryWriter`/`BinaryReader`; strings are UTF-8 with a 7-bit
+length prefix).
 
-| Richtung | Nachricht |
-|----------|-----------|
-| Spiel → Worker | `1`, `model:str`, `backend:str` (`CPU`/`CUDA`/`Vulkan0`) |
-| Worker → Spiel | `1`, `2` (Protokollversion), `backend:str` (`cpu`/`cuda`/`vulkan`) |
-| Spiel → Worker | `2`, `text:str` (≤ 240 Zeichen pro Chunk), `language:str`, `n:i32`, `n × f32` Stimmprobe (24 kHz mono, 0,1–10 s; `n = 0` heißt „wie zuletzt“) |
-| Worker → Spiel | beliebig oft `2`, `count:i32`, `count × f32` (24 kHz mono, −1…1), danach `3` |
-| Worker → Spiel | bei Fehler `4`, `message:str` |
+| Direction | Message |
+|-----------|---------|
+| Game → worker | `1`, `model:str`, `backend:str` (`CPU`/`CUDA`/`Vulkan0`) |
+| Worker → game | `1`, `2` (protocol version), `backend:str` (`cpu`/`cuda`/`vulkan`) |
+| Game → worker | `2`, `text:str` (≤ 240 characters per chunk), `language:str`, `n:i32`, `n × f32` voice sample (24 kHz mono, 0.1–10 s; `n = 0` means "same as last time") |
+| Worker → game | any number of `2`, `count:i32`, `count × f32` (24 kHz mono, −1…1), then `3` |
+| Worker → game | on error: `4`, `message:str` |
 
-Grenzen auf Spielseite:
-- Höchstens 720 000 Samples (30 s) pro Request.
-- Kommt nach 20 s noch kein erstes Audio, gibt das Spiel auf; nach 30 s bricht es den
-  ganzen Request ab.
-- Der Worker läuft in einem Job-Objekt mit 8 GB Speicherlimit.
+Limits on the game side:
+- At most 720,000 samples (30 s) per request.
+- If no first audio arrives within 20 s, the game gives up; after 30 s it cancels the
+  whole request.
+- The worker runs in a job object with an 8 GB memory limit.
 
-Das Original-Worker ruft audio.cpp mit `x_vector_only_mode=true` und `max_tokens=360`
-auf, also Voice-Cloning über das Sprecher-Embedding ohne Transkript. Der Proxy bildet das
-mit `ref_audio` + `x_vector_only_mode` + `task_type: Base` auf die OpenAI-Speech-API ab.
+The original worker calls audio.cpp with `x_vector_only_mode=true` and `max_tokens=360`,
+i.e. voice cloning from the speaker embedding without a transcript. The proxy maps this to
+the OpenAI speech API using `ref_audio` + `x_vector_only_mode` + `task_type: Base`.
 
-## Runtime-Validierung
+## Runtime validation
 
-`QwenRuntimeFiles.Validate` liest `runtime-manifest.json` und prüft:
-- `source == "0xShug0/audio.cpp"`, den Commit und `protocol == 2`;
-- den SHA-256 jeder dort gelisteten Datei.
+`QwenRuntimeFiles.Validate` reads `runtime-manifest.json` and checks:
+- `source == "0xShug0/audio.cpp"`, the commit and `protocol == 2`;
+- the SHA-256 of every file listed there.
 
-Die erwarteten Hashes stehen nur im Manifest und nicht im Code. Deshalb genügt es, den
-Eintrag für `QwenTtsWorker.exe` zu aktualisieren.
+The expected hashes exist only in the manifest, not in the code, so updating the entry for
+`QwenTtsWorker.exe` is enough.
 
-## Backups und Updates
+## Backups and updates
 
-- Der Patcher legt `<datei>.orig` neben jeder geänderten Datei an. Seinen Zustand
-  speichert er in `kolkata-qwen-runtime/qwen-patch-state.json`, inklusive der Hashes der
-  gepatchten Dateien.
-- Jede Installation baut auf den `.orig`-Dateien auf. Unterscheidet sich eine Datei sowohl
-  vom gepatchten Stand als auch vom Backup, hat ein Update sie ersetzt. Dann wird sie als
-  neues Original gesichert.
+- The patcher creates `<file>.orig` next to every file it changes. It keeps its state in
+  `kolkata-qwen-runtime/qwen-patch-state.json`, including the hashes of the patched files.
+- Every installation starts from the `.orig` files. If a file differs both from the
+  patched state and from the backup, an update has replaced it, and it is backed up as the
+  new original.

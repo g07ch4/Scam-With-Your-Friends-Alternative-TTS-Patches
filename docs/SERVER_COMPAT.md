@@ -1,56 +1,55 @@
-# Kompatible TTS-Server
+# Compatible TTS servers
 
-Der Remote-Worker schickt jeden Satz per `POST` an die eingestellte URL. Zurück erwartet
-er rohe Audiodaten, also WAV oder 16-Bit-PCM, kein JSON. Damit jede Spielfigur mit ihrer
-eigenen Stimme spricht, kann er die Stimmprobe der Figur mitsenden. Wie das genau
-aussieht, unterscheidet sich je nach Server.
+The remote worker sends every sentence via `POST` to the configured URL. It expects raw
+audio back, either WAV or 16-bit PCM, not JSON. So that every character speaks with their
+own voice, it can include the character's voice sample. How exactly that sample has to be
+sent differs between servers.
 
-> **Stand:** November 2026. Die Einstufung beruht auf der Dokumentation der Projekte.
-> Gegen einen echten Server habe ich bisher keinen davon getestet. Prüfe die
-> Einstellungen deshalb immer mit **„Verbindung testen“** im Installer bzw. mit
-> `py patch_qwen.py --test-server`. Rückmeldungen nehme ich gern auf.
+> **Status:** November 2026. The ratings are based on each project's documentation. None
+> of these servers has been tested against a real instance yet, so always check your
+> settings with **Test connection** in the installer or with
+> `py patch_qwen.py --test-server`. Reports are welcome.
 
-## Übersicht
+## Overview
 
-| Server | Stimme pro Figur | Spiel-Sprachen | Einrichtung | Bewertung |
-|--------|------------------|----------------|-------------|-----------|
-| [vLLM-Omni](#vllm-omni) | ✅ automatisch (`ref_audio`) | alle | [Anleitung](https://docs.vllm.ai/projects/vllm-omni/en/v0.18.0/user_guide/examples/online_serving/qwen3_tts/) | ✅ empfohlen, Standard-Konfiguration |
-| [Qwen3-TTS-Openai-Fastapi (groxaxo)](#qwen3-tts-openai-fastapi-groxaxo) | ✅ automatisch (`/v1/audio/voice-clone`) | alle | [Quick start](https://github.com/groxaxo/Qwen3-TTS-Openai-Fastapi#quick-start) | ✅ kompatibel, auch CPU und Docker |
-| [qwen3_audio_api (second-state)](#qwen3_audio_api-second-state) | ✅ automatisch (`audio_sample`) | alle | [Docker-Quickstart](https://github.com/second-state/qwen3_audio_api) | ✅ kompatibel |
-| [Qwen3-TTS-Openai-Fastapi (dingausmwald)](#qwen3-tts-openai-fastapi-dingausmwald) | 🟡 über angelegte Profile + `voice_map` | über Modellnamen | [Quick Start](https://github.com/dingausmwald/Qwen3-TTS-Openai-Fastapi) | 🟡 eingeschränkt, gut für AMD/ROCm |
-| [LocalAI](#localai) | 🟡 über Voice-Profile + `voice_map` | alle | [Qwen3-TTS-Setup](https://localai.io/docs/features/text-to-audio/) | 🟡 eingeschränkt |
-| [Kokoro-FastAPI](#kokoro-fastapi) | ❌ feste Server-Stimmen | kein Deutsch | [Get Started](https://github.com/remsky/Kokoro-FastAPI#get-started) | ⚪ nur feste Stimmen, sehr schnell |
-| [openedai-speech](#openedai-speech) | ❌ nur per Server-Konfiguration | – | [Repo](https://github.com/matatonic/openedai-speech) | ❌ archiviert, nicht empfohlen |
+| Server | Voice per character | Game languages | Setup | Rating |
+|--------|---------------------|----------------|-------|--------|
+| [vLLM-Omni](#vllm-omni) | ✅ automatic (`ref_audio`) | all | [Guide](https://docs.vllm.ai/projects/vllm-omni/en/v0.18.0/user_guide/examples/online_serving/qwen3_tts/) | ✅ recommended, default configuration |
+| [Qwen3-TTS-Openai-Fastapi (groxaxo)](#qwen3-tts-openai-fastapi-groxaxo) | ✅ automatic (`/v1/audio/voice-clone`) | all | [Quick start](https://github.com/groxaxo/Qwen3-TTS-Openai-Fastapi#quick-start) | ✅ compatible, also CPU and Docker |
+| [qwen3_audio_api (second-state)](#qwen3_audio_api-second-state) | ✅ automatic (`audio_sample`) | all | [Docker quickstart](https://github.com/second-state/qwen3_audio_api) | ✅ compatible |
+| [Qwen3-TTS-Openai-Fastapi (dingausmwald)](#qwen3-tts-openai-fastapi-dingausmwald) | 🟡 via saved profiles + `voice_map` | via model name | [Quick Start](https://github.com/dingausmwald/Qwen3-TTS-Openai-Fastapi) | 🟡 limited, good for AMD/ROCm |
+| [LocalAI](#localai) | 🟡 via voice profiles + `voice_map` | all | [Qwen3-TTS setup](https://localai.io/docs/features/text-to-audio/) | 🟡 limited |
+| [Kokoro-FastAPI](#kokoro-fastapi) | ❌ fixed server voices | no German | [Get Started](https://github.com/remsky/Kokoro-FastAPI#get-started) | ⚪ fixed voices only, very fast |
+| [openedai-speech](#openedai-speech) | ❌ only via server configuration | – | [Repo](https://github.com/matatonic/openedai-speech) | ❌ archived, not recommended |
 
-**Was „automatisch“ bedeutet:** Der Server bekommt die Stimmprobe mit jedem Request und
-klont die Stimme selbst, genau wie das Spiel es lokal macht. Bei 🟡 legst du die Stimmen
-einmal auf dem Server an und ordnest sie über `voice_map` zu. Wie das geht, steht ganz
-unten unter [Stimmen manuell zuordnen](#stimmen-manuell-zuordnen).
+**What "automatic" means:** the server gets the voice sample with every request and clones
+the voice itself, just like the game does locally. With 🟡 you register the voices on the
+server once and map them with `voice_map`. How to do that is described at the bottom under
+[Mapping voices manually](#mapping-voices-manually).
 
-Für das Voice-Cloning brauchen alle Qwen3-Server ein **Base**-Modell, z. B.
-`Qwen/Qwen3-TTS-12Hz-0.6B-Base`. Die CustomVoice- und VoiceDesign-Modelle können nicht
-klonen.
+For voice cloning, every Qwen3 server needs a **Base** model, e.g.
+`Qwen/Qwen3-TTS-12Hz-0.6B-Base`. The CustomVoice and VoiceDesign models cannot clone.
 
-Wo die Konfiguration steht: Die Blöcke unten gehören in
-`…\kolkata-qwen-runtime\qwen-remote.json`. Im Installer setzt du sie über die Felder und
-*Zusätzliche Felder*. Nicht aufgeführte Felder behalten ihren Standardwert aus
+Where the configuration goes: the blocks below belong in
+`…\kolkata-qwen-runtime\qwen-remote.json`. In the installer you set them through the form
+fields and *Extra fields*. Fields not listed keep their defaults from
 [config/qwen-remote.example.json](../config/qwen-remote.example.json).
 
 ---
 
 ## vLLM-Omni
 
-Ein OpenAI-kompatibler Server des vLLM-Projekts. Er nimmt genau das Request-Format an, das
-der Patch standardmäßig sendet: `ref_audio` als Data-URL, `task_type`,
-`x_vector_only_mode` und `language` mit vollem Sprachnamen. Braucht eine NVIDIA-GPU.
+An OpenAI-compatible server from the vLLM project. It accepts exactly the request format
+the patch sends by default: `ref_audio` as a data URL, `task_type`, `x_vector_only_mode`,
+and `language` as a full language name. Requires an NVIDIA GPU.
 
-- **Einrichtung:**
+- **Setup:**
   [Qwen3-TTS Online Serving](https://docs.vllm.ai/projects/vllm-omni/en/v0.18.0/user_guide/examples/online_serving/qwen3_tts/),
-  Abschnitt „Launch the Server“. Die Installation von vLLM-Omni beschreibt dessen README.
-- **Startbefehl laut Doku:**
-  `vllm serve Qwen/Qwen3-TTS-12Hz-0.6B-Base --omni --port 8091`. Damit andere Rechner im
-  Netz zugreifen können, zusätzlich `--host 0.0.0.0`.
-- **Zu wenig VRAM:** Laut Doku hilft das 0.6B-Modell oder ein niedrigeres
+  section "Launch the Server". Installing vLLM-Omni itself is covered in its README.
+- **Start command from the docs:**
+  `vllm serve Qwen/Qwen3-TTS-12Hz-0.6B-Base --omni --port 8091`. Add `--host 0.0.0.0` so
+  other machines on the network can connect.
+- **Not enough VRAM:** according to the docs, use the 0.6B model or a lower
   `--gpu-memory-utilization`.
 
 ```json
@@ -68,19 +67,19 @@ der Patch standardmäßig sendet: `ref_audio` als Data-URL, `task_type`,
 
 ## Qwen3-TTS-Openai-Fastapi (groxaxo)
 
-Ein FastAPI-Server mit Docker-Images für GPU und CPU (auf der CPU das 0.6B-Modell).
-Geklont wird über einen eigenen Endpoint `/v1/audio/voice-clone`. Der erwartet die
-Stimmprobe als **rohes Base64 ohne `data:`-Präfix**.
+A FastAPI server with Docker images for GPU and CPU (the 0.6B model on CPU). Cloning goes
+through a separate endpoint, `/v1/audio/voice-clone`, which expects the voice sample as
+**plain base64 without a `data:` prefix**.
 
-- **Einrichtung:**
+- **Setup:**
   [Quick start](https://github.com/groxaxo/Qwen3-TTS-Openai-Fastapi#quick-start).
-  GPU per `docker compose up --build qwen3-tts-gpu`, CPU per
+  GPU: `docker compose up --build qwen3-tts-gpu`. CPU:
   `docker compose --profile cpu up --build qwen3-tts-cpu`.
-- **Gespeicherte Stimmprofile (optional):**
+- **Saved voice profiles (optional):**
   [Voice Library](https://github.com/groxaxo/Qwen3-TTS-Openai-Fastapi/blob/main/docs/voice-library.md).
-- Der Server muss mit einem **Base**-Checkpoint laufen.
-- `x_vector_only_mode` muss `true` bleiben. Sonst verlangt der Server ein Transkript
-  (`ref_text`), und das liefert das Spiel nicht.
+- The server must run a **Base** checkpoint.
+- `x_vector_only_mode` must stay `true`. Otherwise the server requires a transcript
+  (`ref_text`), which the game doesn't provide.
 
 ```json
 {
@@ -96,14 +95,14 @@ Stimmprobe als **rohes Base64 ohne `data:`-Präfix**.
 
 ## qwen3_audio_api (second-state)
 
-Ein OpenAI-kompatibler Server für Qwen3-TTS und Qwen3-ASR, mit Dockerfiles für CPU und
-CUDA. Die Stimmprobe kommt als rohes Base64 ins Feld `audio_sample`. Ist sie dabei, wird
-`voice` ignoriert und das Base-Modell genutzt.
+An OpenAI-compatible server for Qwen3-TTS and Qwen3-ASR, with Dockerfiles for CPU and CUDA.
+The voice sample goes into the `audio_sample` field as plain base64. When it is present,
+`voice` is ignored and the Base model is used.
 
-- **Einrichtung:** [README](https://github.com/second-state/qwen3_audio_api), Abschnitt
-  „Quickstart with Docker“, und die
-  [Python-Variante](https://github.com/second-state/qwen3_audio_api/blob/main/python/README.md).
-  Die Projektseite empfiehlt dringend eine CUDA-GPU; auf der CPU ist es langsam.
+- **Setup:** [README](https://github.com/second-state/qwen3_audio_api), section
+  "Quickstart with Docker", and the
+  [Python variant](https://github.com/second-state/qwen3_audio_api/blob/main/python/README.md).
+  The project strongly recommends a CUDA GPU; it is slow on the CPU.
 
 ```json
 {
@@ -119,19 +118,19 @@ CUDA. Die Stimmprobe kommt als rohes Base64 ins Feld `audio_sample`. Ist sie dab
 
 ## Qwen3-TTS-Openai-Fastapi (dingausmwald)
 
-Ein Fork von groxaxo mit Streaming und Optimierungen, getestet unter AMD ROCm. Laut README
-klont er nur über **gespeicherte Profile** (`voice: "clone:Name"`). Die Sprache wird über
-den Modellnamen gewählt, z. B. `tts-1-de`. WAV ist nicht dokumentiert, deshalb wird hier
-gestreamtes PCM verwendet.
+A fork of groxaxo with streaming and optimizations, tested on AMD ROCm. According to its
+README it only clones through **saved profiles** (`voice: "clone:Name"`). The language is
+chosen through the model name, e.g. `tts-1-en` for English or `tts-1-de` for German. WAV is
+not documented, so streamed PCM is used here.
 
-- **Einrichtung:** [README](https://github.com/dingausmwald/Qwen3-TTS-Openai-Fastapi),
-  Abschnitte „Quick Start“ (Docker für NVIDIA/ROCm) und „Manual installation“.
+- **Setup:** [README](https://github.com/dingausmwald/Qwen3-TTS-Openai-Fastapi), sections
+  "Quick Start" (Docker for NVIDIA/ROCm) and "Manual installation".
 
 ```json
 {
   "url": "http://SERVER-IP:8880/v1/audio/speech",
-  "model": "tts-1-de",
-  "voice": "clone:Standard",
+  "model": "tts-1-en",
+  "voice": "clone:Default",
   "response_format": "pcm",
   "pcm_sample_rate": 24000,
   "send_language": false,
@@ -143,19 +142,19 @@ gestreamtes PCM verwendet.
 
 ## LocalAI
 
-LocalAI ist ein Allround-Server für lokale KI-Modelle. Der Qwen3-TTS-Backend kann Stimmen
-klonen, allerdings nur über **Voice-Profile** auf dem Server. Diese werden im Feld `voice`
-als `localai://voice-profiles/<uuid>` angegeben.
+LocalAI is an all-round server for local AI models. Its Qwen3-TTS backend can clone voices,
+but only through **voice profiles** on the server. These go into the `voice` field as
+`localai://voice-profiles/<uuid>`.
 
-- **Einrichtung:** [Text to Audio](https://localai.io/docs/features/text-to-audio/),
-  Abschnitt „Qwen3-TTS“: `local-ai models install qwen-tts`. Profile legst du per
-  `POST /api/voice-profiles` an; die Felder dafür stehen auf derselben Seite.
+- **Setup:** [Text to Audio](https://localai.io/docs/features/text-to-audio/), section
+  "Qwen3-TTS": `local-ai models install qwen-tts`. Create profiles with
+  `POST /api/voice-profiles`; the fields are described on the same page.
 
 ```json
 {
   "url": "http://SERVER-IP:8080/v1/audio/speech",
   "model": "qwen-tts",
-  "voice": "localai://voice-profiles/<uuid-Standardstimme>",
+  "voice": "localai://voice-profiles/<uuid-of-default-voice>",
   "response_format": "wav",
   "send_language": true,
   "send_reference_audio": false,
@@ -166,15 +165,15 @@ als `localai://voice-profiles/<uuid>` angegeben.
 
 ## Kokoro-FastAPI
 
-Ein sehr schneller, kleiner TTS-Server, der auch auf der CPU läuft. Er hat aber nur feste
-Stimmen, kein Voice-Cloning und **keine deutschen Stimmen**. Sinnvoll, wenn du auf
-Englisch spielst und Geschwindigkeit wichtiger ist als Figuren-Stimmen.
+A very fast, small TTS server that also runs on the CPU. It only has fixed voices, no voice
+cloning and **no German voices**. Useful if you play in English and care more about speed
+than about per-character voices.
 
-- **Einrichtung:** [Get Started](https://github.com/remsky/Kokoro-FastAPI#get-started).
+- **Setup:** [Get Started](https://github.com/remsky/Kokoro-FastAPI#get-started).
   CPU: `docker run -p 8880:8880 ghcr.io/remsky/kokoro-fastapi-cpu:latest`. NVIDIA:
   `docker run --gpus all -p 8880:8880 ghcr.io/remsky/kokoro-fastapi-gpu:latest`.
-- Die Stimmnamen tragen ein Sprachpräfix (`af_…`, `am_…`, `bf_…`). Über `voice_map`
-  kannst du jeder Figur eine eigene feste Stimme geben.
+- Voice names carry a language prefix (`af_…`, `am_…`, `bf_…`). With `voice_map` you can
+  give each character its own fixed voice.
 
 ```json
 {
@@ -191,32 +190,32 @@ Englisch spielst und Geschwindigkeit wichtiger ist als Figuren-Stimmen.
 
 ## openedai-speech
 
-Das Repository ist seit Januar 2026 archiviert; die letzte Version stammt von 2024.
-Funktionieren würde es nur mit festen Stimmen aus der Server-Konfiguration
-(`send_reference_audio: false`, `extra_body: {}`). **Nicht empfohlen.**
+The repository has been archived since January 2026; its last release is from 2024. It
+would only work with fixed voices from its server configuration
+(`send_reference_audio: false`, `extra_body: {}`). **Not recommended.**
 
 ---
 
-## Stimmen manuell zuordnen
+## Mapping voices manually
 
-Für Server, die nur vorher angelegte Stimmen kennen:
+For servers that only know voices registered in advance:
 
-1. `dump_references` eingeschaltet lassen (Standard) und im Spiel ein paar Anrufe
-   durchspielen. Der Worker speichert jede neue Stimmprobe einmal als
+1. Leave `dump_references` on (the default) and play through a few calls in the game. The
+   worker saves each new voice sample once as
    `…\kolkata-qwen-runtime\remote-voices\<hash>.wav`.
-2. Welche Datei zu welcher Figur gehört, zeigt `qwen-remote.log`, z. B.
-   `new voice reference 88235bfe873b`. Du kannst die WAV-Dateien auch einfach anhören.
-3. Die WAV-Dateien auf dem Server als Stimme oder Profil anlegen. Wie das geht, steht in
-   der Anleitung des jeweiligen Servers.
-4. In `qwen-remote.json` jedem Hash den Namen auf dem Server zuordnen:
+2. `qwen-remote.log` shows which file belongs to which character, e.g.
+   `new voice reference 88235bfe873b`. You can also just listen to the WAV files.
+3. Register the WAV files on the server as voices or profiles, as described in that
+   server's guide.
+4. In `qwen-remote.json`, map each hash to its name on the server:
    `"voice_map": { "88235bfe873b": "clone:Jake" }`.
-   Figuren ohne Eintrag bekommen die Stimme aus `voice`.
+   Characters without an entry get the voice from `voice`.
 
-## Häufige Fehler
+## Common errors
 
-| Meldung im Log / beim Test | Ursache |
-|----------------------------|---------|
-| `HTTP 422` / `HTTP 400` | Der Server kennt ein Feld nicht oder erwartet ein anderes Format. *Zusätzliche Felder* und `reference_audio_encoding` mit dem passenden Abschnitt oben vergleichen. |
-| `missing_ref_text` | `x_vector_only_mode` steht nicht auf `true`. |
-| `Server did not return WAV` | Der Server liefert ein anderes Format (oft mp3). `response_format` prüfen, alternativ `pcm` verwenden. |
-| `not reachable` | IP oder Port falsch, die Firewall blockiert, oder der Server lauscht nur auf `127.0.0.1` statt `0.0.0.0`. |
+| Message in the log / connection test | Cause |
+|--------------------------------------|-------|
+| `HTTP 422` / `HTTP 400` | The server doesn't know a field or expects a different format. Compare *Extra fields* and `reference_audio_encoding` with the matching section above. |
+| `missing_ref_text` | `x_vector_only_mode` is not set to `true`. |
+| `Server did not return WAV` | The server returns a different format (often mp3). Check `response_format`, or use `pcm` instead. |
+| `not reachable` | Wrong IP or port, the firewall is blocking, or the server listens only on `127.0.0.1` instead of `0.0.0.0`. |

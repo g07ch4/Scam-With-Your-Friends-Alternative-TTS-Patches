@@ -15,9 +15,9 @@ from qwen_patcher.paths import EXAMPLE_CONFIG  # noqa: E402
 from qwen_patcher.remote import test_server  # noqa: E402
 
 STATUS_TEXT = {
-    "original": "Nicht gepatcht",
-    "patched": "Gepatcht",
-    "reverted": "Patch wurde durch ein Spiel-Update entfernt – bitte neu installieren",
+    "original": "Not patched",
+    "patched": "Patched",
+    "reverted": "Patch was removed by a game update – please install again",
 }
 
 
@@ -60,22 +60,22 @@ class Installer(tk.Tk):
         body.pack(fill="both", expand=True)
         body.columnconfigure(0, weight=1)
 
-        game = ttk.LabelFrame(body, text="Spielordner", padding=8)
+        game = ttk.LabelFrame(body, text="Game folder", padding=8)
         game.grid(row=0, column=0, sticky="ew", **pad)
         game.columnconfigure(0, weight=1)
         self.game_combo = ttk.Combobox(game, textvariable=self.game_dir)
         self.game_combo.grid(row=0, column=0, sticky="ew")
-        ttk.Button(game, text="Durchsuchen…", command=self._browse).grid(row=0, column=1, padx=(6, 0))
+        ttk.Button(game, text="Browse…", command=self._browse).grid(row=0, column=1, padx=(6, 0))
         ttk.Label(game, textvariable=self.status, foreground="#555").grid(row=1, column=0, columnspan=2, sticky="w",
                                                                           pady=(4, 0))
 
-        low = ttk.LabelFrame(body, text="Patch 1 – Hardware-Anforderungen senken", padding=8)
+        low = ttk.LabelFrame(body, text="Patch 1 – Lower the hardware requirements", padding=8)
         low.grid(row=1, column=0, sticky="ew", **pad)
-        ttk.Checkbutton(low, text="Aktivieren", variable=self.lowreq, command=self._toggle).grid(
+        ttk.Checkbutton(low, text="Enable", variable=self.lowreq, command=self._toggle).grid(
             row=0, column=0, columnspan=4, sticky="w")
         self.low_widgets = []
         labels = (("vram", "Min. VRAM (MiB)", 0, 65536), ("ram", "Min. RAM (MiB)", 0, 262144),
-                  ("avail", "Min. freier RAM (MiB)", 0, 262144), ("threads", "Min. CPU-Threads", 0, 8))
+                  ("avail", "Min. free RAM (MiB)", 0, 262144), ("threads", "Min. CPU threads", 0, 8))
         for i, (key, text, lo, hi) in enumerate(labels):
             r, c = 1 + i // 2, (i % 2) * 2
             ttk.Label(low, text="%s, orig. %d" % (text, ORIGINAL[key])).grid(row=r, column=c, sticky="w", pady=2)
@@ -83,20 +83,20 @@ class Installer(tk.Tk):
                                textvariable=self.limits[key], width=8)
             spin.grid(row=r, column=c + 1, sticky="w", padx=(6, 24))
             self.low_widgets.append(spin)
-        cpu = ttk.Checkbutton(low, text="Auch ohne passende GPU auf der CPU (meist zu langsam)",
+        cpu = ttk.Checkbutton(low, text="Allow CPU without a suitable GPU (usually too slow)",
                               variable=self.allow_cpu)
         cpu.grid(row=3, column=0, columnspan=4, sticky="w", pady=(4, 0))
         self.low_widgets.append(cpu)
 
-        rem = ttk.LabelFrame(body, text="Patch 2 – TTS an Server im Heimnetz auslagern (OpenAI /v1/audio/speech)",
+        rem = ttk.LabelFrame(body, text="Patch 2 – Offload TTS to a server on your network (OpenAI /v1/audio/speech)",
                              padding=8)
         rem.grid(row=2, column=0, sticky="ew", **pad)
         rem.columnconfigure(1, weight=1)
-        ttk.Checkbutton(rem, text="Aktivieren", variable=self.remote, command=self._toggle).grid(
+        ttk.Checkbutton(rem, text="Enable", variable=self.remote, command=self._toggle).grid(
             row=0, column=0, columnspan=3, sticky="w")
         self.remote_widgets = []
-        rows = (("url", "Server-URL"), ("api_key", "API-Key (optional)"), ("model", "Modell"),
-                ("voice", "Stimme (Fallback)"))
+        rows = (("url", "Server URL"), ("api_key", "API key (optional)"), ("model", "Model"),
+                ("voice", "Voice (fallback)"))
         for i, (key, text) in enumerate(rows, start=1):
             ttk.Label(rem, text=text).grid(row=i, column=0, sticky="w", pady=2)
             entry = ttk.Entry(rem, textvariable=self.fields[key], show="•" if key == "api_key" else "")
@@ -111,27 +111,27 @@ class Installer(tk.Tk):
         timeout = ttk.Spinbox(fmt, from_=5, to=120, textvariable=self.fields["timeout_seconds"], width=5)
         timeout.pack(side="left", padx=8)
         self.remote_widgets += [combo, timeout]
-        for i, (var, text) in enumerate(((self.send_reference, "Stimmprobe der Figur mitsenden (Voice-Cloning)"),
-                                         (self.send_language, "Sprache mitsenden"),
-                                         (self.dump_references, "Stimmproben als WAV speichern (remote-voices)"))):
+        for i, (var, text) in enumerate(((self.send_reference, "Send voice sample (voice cloning)"),
+                                         (self.send_language, "Send language"),
+                                         (self.dump_references, "Save voice samples as WAV (remote-voices)"))):
             box = ttk.Checkbutton(rem, text=text, variable=var)
             box.grid(row=6 + i, column=0, columnspan=3, sticky="w")
             self.remote_widgets.append(box)
-        ttk.Label(rem, text="Zusätzliche Felder (JSON)").grid(row=9, column=0, sticky="nw", pady=2)
+        ttk.Label(rem, text="Extra fields (JSON)").grid(row=9, column=0, sticky="nw", pady=2)
         self.extra = tk.Text(rem, height=3, width=40, font=("Consolas", 9))
         self.extra.grid(row=9, column=1, columnspan=2, sticky="ew", padx=(6, 0), pady=2)
-        test = ttk.Button(rem, text="Verbindung testen", command=self._test)
+        test = ttk.Button(rem, text="Test connection", command=self._test)
         test.grid(row=10, column=2, sticky="e", pady=(4, 0))
         self.remote_widgets += [self.extra, test]
 
         buttons = ttk.Frame(body)
         buttons.grid(row=3, column=0, sticky="ew", **pad)
-        self.install_button = ttk.Button(buttons, text="Installieren", command=self._install)
+        self.install_button = ttk.Button(buttons, text="Install", command=self._install)
         self.install_button.pack(side="right")
-        ttk.Button(buttons, text="Deinstallieren", command=self._uninstall).pack(side="right", padx=6)
-        ttk.Button(buttons, text="Runtime-Ordner öffnen", command=self._open_runtime).pack(side="left")
+        ttk.Button(buttons, text="Uninstall", command=self._uninstall).pack(side="right", padx=6)
+        ttk.Button(buttons, text="Open runtime folder", command=self._open_runtime).pack(side="left")
 
-        logf = ttk.LabelFrame(body, text="Protokoll", padding=4)
+        logf = ttk.LabelFrame(body, text="Log", padding=4)
         logf.grid(row=4, column=0, sticky="nsew", **pad)
         body.rowconfigure(4, weight=1)
         self.log_text = tk.Text(logf, height=8, state="disabled", font=("Consolas", 9))
@@ -164,12 +164,12 @@ class Installer(tk.Tk):
         try:
             extra = json.loads(self.extra.get("1.0", "end").strip() or "{}")
         except ValueError as e:
-            raise PatchError("Zusätzliche Felder sind kein gültiges JSON: %s" % e)
+            raise PatchError("Extra fields are not valid JSON: %s" % e)
         if not isinstance(extra, dict):
-            raise PatchError("Zusätzliche Felder müssen ein JSON-Objekt sein.")
+            raise PatchError("Extra fields must be a JSON object.")
         url = self.fields["url"].get().strip()
         if not url.startswith(("http://", "https://")):
-            raise PatchError("Server-URL muss mit http:// oder https:// beginnen.")
+            raise PatchError("The server URL must start with http:// or https://.")
         config = dict(self.loaded_config)
         config.update({
             "url": url,
@@ -194,7 +194,7 @@ class Installer(tk.Tk):
     def refresh(self):
         path = self.game_dir.get().strip()
         if not is_game_dir(path):
-            self.status.set("Kein gültiger Spielordner gewählt")
+            self.status.set("No valid game folder selected")
             return
         try:
             game = self._game()
@@ -219,7 +219,7 @@ class Installer(tk.Tk):
     # ---------------------------------------------------------------- actions
 
     def _browse(self):
-        path = filedialog.askdirectory(title="Ordner von Scam With Your Friends wählen")
+        path = filedialog.askdirectory(title="Select the Scam With Your Friends folder")
         if path:
             self.game_dir.set(os.path.normpath(path))
 
@@ -227,7 +227,7 @@ class Installer(tk.Tk):
         try:
             os.startfile(self._game().runtime)
         except (PatchError, OSError) as e:
-            messagebox.showerror("Fehler", str(e))
+            messagebox.showerror("Error", str(e))
 
     def _install(self):
         try:
@@ -236,10 +236,10 @@ class Installer(tk.Tk):
                               **{k: v.get() for k, v in self.limits.items()})
             config = self._config() if options.remote else None
         except (PatchError, tk.TclError, ValueError) as e:
-            messagebox.showerror("Eingabe prüfen", str(e))
+            messagebox.showerror("Check your input", str(e))
             return
         if not (options.lowreq or options.remote):
-            messagebox.showinfo("Nichts gewählt", "Bitte mindestens einen Patch aktivieren.")
+            messagebox.showinfo("Nothing selected", "Please enable at least one patch.")
             return
         self._run(lambda log: game.install(options, remote_config=config, log=log))
 
@@ -247,18 +247,18 @@ class Installer(tk.Tk):
         try:
             game = self._game()
         except PatchError as e:
-            messagebox.showerror("Fehler", str(e))
+            messagebox.showerror("Error", str(e))
             return
-        if messagebox.askyesno("Deinstallieren", "Originaldateien wiederherstellen?"):
+        if messagebox.askyesno("Uninstall", "Restore the original files?"):
             self._run(game.uninstall)
 
     def _test(self):
         try:
             config = self._config()
         except (PatchError, ValueError) as e:
-            messagebox.showerror("Eingabe prüfen", str(e))
+            messagebox.showerror("Check your input", str(e))
             return
-        self._run(lambda log: log(test_server(config)), "Teste %s …" % config["url"])
+        self._run(lambda log: log(test_server(config)), "Testing %s …" % config["url"])
 
     def _run(self, job, start_message=None):
         if self.busy:
@@ -284,8 +284,8 @@ class Installer(tk.Tk):
                 if kind == "log":
                     self.log(value)
                 elif kind == "error":
-                    self.log("FEHLER: " + value)
-                    messagebox.showerror("Fehler", value)
+                    self.log("ERROR: " + value)
+                    messagebox.showerror("Error", value)
                 else:
                     self.busy = False
                     self.install_button.configure(state="normal")
