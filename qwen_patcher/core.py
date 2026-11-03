@@ -32,6 +32,30 @@ ELIGIBLE_EXPECT = {
 #   1B 28 <SetState> DD <x> 7E <verified> 2C 0B 19 28 <SetState> DD <x>
 VERIFIED_RE = re.compile(rb"\x1B\x28(....)\xDD....\x7E....(\x2C\x0B)\x19\x28\1\xDD", re.S)
 
+
+def _seconds(value):
+    return re.escape(b"\x23" + struct.pack("<d", value))  # ldc.r8 <value>
+
+
+# Qwen timeouts in QwenTtsSingleton. One expiry calls Fail(), which turns Qwen off for the whole
+# session - and on PCs without another speech model the callers then stay silent.
+#   name: (pattern with the ldc.r8 as group 1, original seconds, patched seconds)
+TIMEOUTS = {
+    # <Prepare>d__44: new CancellationTokenSource(20 s) and expires = now + 20 s. Covers hashing
+    # the ~1 GB runtime and starting the worker, which takes longer than that on slow PCs.
+    "prepare_cancel": (rb"\x17\x28....\x07(" + _seconds(20) + rb")\x28....\x73....\x7D", 20, 120),
+    "prepare_expires": (rb"\x08\x28....(" + _seconds(20) + rb")\x58\x7D", 20, 120),
+    # Prompt: firstAudioDeadline = now + 20 s and new CancellationTokenSource(30 s).
+    "first_audio": (rb"\x02\x28....(" + _seconds(20) + rb")\x58\x7D....\x02\x06\xFE\x06", 20, 60),
+    "prompt_cancel": (rb"\x7D....\x02(" + _seconds(30) + rb")\x28....\x73....\x7D", 30, 90),
+    # <Prompt>b__2: CancelAfter(30 s) after every audio chunk.
+    "chunk_cancel": (rb"\x7B....(" + _seconds(30) + rb")\x28....\x6F....\x02\x03\x02\x7B", 30, 60),
+}
+
+# Small files that stay in the runtime manifest in remote mode (Validate needs at least 4 entries).
+REMOTE_MANIFEST_FILES = ("QwenTtsWorker.exe", "LICENSE-audio.cpp.txt", "LICENSE-lookbe.txt", "LICENSE-model.txt",
+                         "LICENSE-qwentts.txt")
+
 DEFAULTS = {"vram": 3072, "ram": 7000, "avail": 3072, "threads": 2}
 ORIGINAL = {"vram": 5632, "ram": 15000, "avail": 8192, "threads": 4}
 
@@ -42,8 +66,8 @@ class PatchError(Exception):
 
 class Options(object):
     def __init__(self, lowreq=False, remote=False, allow_cpu=False, vram=DEFAULTS["vram"], ram=DEFAULTS["ram"],
-                 avail=DEFAULTS["avail"], threads=DEFAULTS["threads"]):
-        self.lowreq, self.remote, self.allow_cpu = lowreq, remote, allow_cpu
+                 avail=DEFAULTS["avail"], threads=DEFAULTS["threads"], timeouts=True):
+        self.lowreq, self.remote, self.allow_cpu, self.timeouts = lowreq, remote, allow_cpu, timeouts
         self.vram, self.ram, self.avail, self.threads = int(vram), int(ram), int(avail), int(threads)
         if not 0 <= self.threads <= 8:
             raise PatchError("threads must be between 0 and 8")
@@ -155,18 +179,25 @@ def patch_dll(data, options, log=print):
         at = matches[0].start(2)
         data[at:at + 2] = b"\x26\x00"  # brfalse.s -> pop ; nop  => model counts as installed, no 2 GB download
         log("Hardware check disabled, model download skipped (remote TTS)")
+
+    if options.timeouts:
+        for name, (pattern, _, seconds) in TIMEOUTS.items():
+            matches = list(re.finditer(pattern, bytes(data), re.S))
+            if len(matches) != 1:
+                raise PatchError("Qwen timeout '%s' not found - unsupported game version." % name)
+            struct.pack_into("<d", data, matches[0].start(1) + 1, float(seconds))
+        log("Qwen timeouts raised: preparation 20 -> 120 s, first audio 20 -> 60 s, synthesis 30 -> 90 s")
     return bytes(data)
 
 
-def set_manifest_hash(text, digest):
-    new, n = re.subn(r'("sha256"\s*:\s*")[0-9a-fA-F]{64}("\s*,\s*"path"\s*:\s*"QwenTtsWorker\.exe")',
-                     lambda m: m.group(1) + digest + m.group(2), text)
-    if n != 1:
-        new, n = re.subn(r'("path"\s*:\s*"QwenTtsWorker\.exe"\s*,\s*"sha256"\s*:\s*")[0-9a-fA-F]{64}',
-                         lambda m: m.group(1) + digest, text)
-    if n != 1:
-        raise PatchError("QwenTtsWorker.exe entry not found in runtime-manifest.json.")
-    return new
+def remote_manifest(text, runtime_dir):
+    """The game hashes every manifest file (~1 GB of CUDA/Vulkan DLLs) before starting the worker.
+    The remote worker needs none of them, so only small files are listed - this removes the main
+    cause of preparation timeouts."""
+    manifest = json.loads(text)
+    manifest["files"] = [{"sha256": sha256(os.path.join(runtime_dir, name)), "path": name}
+                         for name in REMOTE_MANIFEST_FILES]
+    return json.dumps(manifest, indent=2) + "\n"
 
 
 class Game(object):
@@ -241,12 +272,15 @@ class Game(object):
         with open(self.manifest + ".orig", encoding="utf-8", newline="") as f:
             manifest = f.read()
         if options.remote:
-            manifest = set_manifest_hash(manifest, sha256(worker_exe))
+            for name in REMOTE_MANIFEST_FILES[1:]:
+                if not os.path.isfile(os.path.join(self.runtime, name)):
+                    raise PatchError("Missing game file: %s" % os.path.join(self.runtime, name))
 
         with open(self.dll, "wb") as f:
             f.write(dll)
         if options.remote:
             shutil.copy2(worker_exe, self.worker)
+            manifest = remote_manifest(manifest, self.runtime)
             if remote_config is not None:
                 write_config(self.config, remote_config)
             log("Remote worker installed, server: %s" % load_config(self.config).get("url"))

@@ -137,6 +137,23 @@ class WorkerTest(unittest.TestCase):
         self.assertTrue(body["ref_audio"].startswith("data:audio/wav;base64,UklGR"))
         self.assertEqual(MockServer.requests[1][1]["ref_audio"], body["ref_audio"])
 
+    def test_long_text_is_sent_sentence_by_sentence(self):
+        p = self.start()
+        self.loaded(p)
+        text = ("Hello, this is your bank calling about a suspicious payment. We need to verify your account "
+                "right now! Can you read me the code we just sent? Thank you.")
+        self.assertAlmostEqual(self.synth(p, text, self.reference), 2 * 24000, delta=4)
+        inputs = [body["input"] for _, body in MockServer.requests]
+        self.assertEqual(inputs, ["Hello, this is your bank calling about a suspicious payment. We need to verify your "
+                                  "account right now!", "Can you read me the code we just sent? Thank you."])
+        self.assertTrue(all(len(i) <= 120 for i in inputs))
+
+    def test_splitting_can_be_disabled(self):
+        p = self.start(split_sentences=False)
+        self.loaded(p)
+        self.synth(p, "One. Two. Three.", self.reference)
+        self.assertEqual([body["input"] for _, body in MockServer.requests], ["One. Two. Three."])
+
     def test_raw_base64_reference_in_custom_field(self):
         p = self.start(reference_audio_field="audio_sample", reference_audio_encoding="base64", extra_body={})
         self.loaded(p)

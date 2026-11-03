@@ -92,15 +92,25 @@ removes the hardware check completely anyway.
 3. Copy `config\qwen-remote.example.json` to `…\kolkata-qwen-runtime\qwen-remote.json` and
    set `url`.
 
-### 2c. Update the checksum in the manifest
+### 2c. Update the manifest
+
+The game hashes every file listed in `runtime-manifest.json` before it starts the worker.
+The remote worker needs none of the ~1 GB of CUDA/Vulkan DLLs, and hashing them can take
+longer than the game's preparation limit on slow PCs. So list only the worker and the
+license files.
+
+Run this in PowerShell from the game folder:
 
 ```powershell
-(Get-FileHash "Scam With Your Friends_Data\StreamingAssets\kolkata-qwen-runtime\QwenTtsWorker.exe").Hash.ToLower()
+$rt = "Scam With Your Friends_Data\StreamingAssets\kolkata-qwen-runtime"
+$m = Get-Content "$rt\runtime-manifest.json" -Raw | ConvertFrom-Json
+$m.files = @("QwenTtsWorker.exe", "LICENSE-audio.cpp.txt", "LICENSE-lookbe.txt", "LICENSE-model.txt", "LICENSE-qwentts.txt") |
+  ForEach-Object { [pscustomobject]@{ sha256 = (Get-FileHash "$rt\$_").Hash.ToLower(); path = $_ } }
+$m | ConvertTo-Json -Depth 5 | Set-Content "$rt\runtime-manifest.json" -Encoding UTF8
 ```
 
-In `runtime-manifest.json`, find the entry with `"path": "QwenTtsWorker.exe"` and replace
-its `"sha256"` with this value. Without this step the game reports *"Qwen runtime checksum
-mismatch"* and keeps its regular voice.
+Without this step the game reports *"Qwen runtime checksum mismatch"* and keeps its regular
+voice.
 
 ### 2d. Test
 
@@ -109,5 +119,48 @@ Prioritize "Qwen3 TTS" in the game and start a call. Lines like these should app
 
 ```
 loaded; server http://192.168.1.50:8000/v1/audio/speech
-ok voice=default ref=88235bfe873b lang=English chars=42 audio=3.1s took=0.84s
+ok voice=default ref=88235bfe873b lang=English chars=42 parts=1 audio=3.1s first=0.84s took=0.84s
 ```
+
+## 3. Raise the Qwen timeouts (recommended for both patches)
+
+A single Qwen timeout turns Qwen off until the game restarts. If no other speech model is
+enabled, callers then stay silent. These replacements in `Assembly-CSharp.dll` raise the
+limits: preparation 20 → 120 s, first audio 20 → 60 s, synthesis 30 → 90 s, and 30 → 60 s
+between audio chunks. Apply them on top of patch 1 or 2; each search must have exactly
+**1** match.
+
+**Preparation, cancellation (20 → 120 s)**
+
+| | Hex |
+|---|---|
+| Find | `17 28 C3 0F 00 0A 07 23 00 00 00 00 00 00 34 40 28 B5 01 00 0A 73 FF 01 00 0A 7D` |
+| Replace | `17 28 C3 0F 00 0A 07 23 00 00 00 00 00 00 5E 40 28 B5 01 00 0A 73 FF 01 00 0A 7D` |
+
+**Preparation, deadline (20 → 120 s)**
+
+| | Hex |
+|---|---|
+| Find | `08 28 B4 01 00 0A 23 00 00 00 00 00 00 34 40 58 7D` |
+| Replace | `08 28 B4 01 00 0A 23 00 00 00 00 00 00 5E 40 58 7D` |
+
+**First audio (20 → 60 s)**
+
+| | Hex |
+|---|---|
+| Find | `02 28 B4 01 00 0A 23 00 00 00 00 00 00 34 40 58 7D E4 13 00 04 02 06 FE 06` |
+| Replace | `02 28 B4 01 00 0A 23 00 00 00 00 00 00 4E 40 58 7D E4 13 00 04 02 06 FE 06` |
+
+**Synthesis (30 → 90 s)**
+
+| | Hex |
+|---|---|
+| Find | `7D F7 13 00 04 02 23 00 00 00 00 00 00 3E 40 28 B5 01 00 0A 73 FF 01 00 0A 7D` |
+| Replace | `7D F7 13 00 04 02 23 00 00 00 00 00 80 56 40 28 B5 01 00 0A 73 FF 01 00 0A 7D` |
+
+**Between audio chunks (30 → 60 s)**
+
+| | Hex |
+|---|---|
+| Find | `7B FB 13 00 04 23 00 00 00 00 00 00 3E 40 28 B5 01 00 0A 6F C8 01 00 0A 02 03 02 7B` |
+| Replace | `7B FB 13 00 04 23 00 00 00 00 00 00 4E 40 28 B5 01 00 0A 6F C8 01 00 0A 02 03 02 7B` |

@@ -14,6 +14,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Web.Script.Serialization;
 
 static class Worker
@@ -163,14 +164,55 @@ static class Worker
         }
     }
 
+    // The game waits at most a few seconds for the first audio, so long texts are sent sentence by
+    // sentence: the first sentence plays while the server is still working on the next one.
     static void Synthesize(string text, string language)
     {
         var started = DateTime.UtcNow;
+        var segments = Bool("split_sentences", true) ? SplitSentences(text, Int("max_segment_chars", 120)) : new List<string> { text };
+        int sent = 0;
+        double first = 0;
+        string voice = Voice();
+        foreach (string segment in segments)
+        {
+            if (sent >= MaxSamples) break;
+            sent = Request(segment, language, voice, sent);
+            if (first == 0) first = (DateTime.UtcNow - started).TotalSeconds;
+        }
+        if (sent == 0) throw new IOException("Server returned no audio.");
+        Log(string.Format("ok voice={0} ref={1} lang={2} chars={3} parts={4} audio={5:0.0}s first={6:0.00}s took={7:0.00}s",
+            voice, referenceHash, language, text.Length, segments.Count, sent / (double)Rate, first,
+            (DateTime.UtcNow - started).TotalSeconds));
+    }
+
+    static List<string> SplitSentences(string text, int max)
+    {
+        var result = new List<string>();
+        var current = new StringBuilder();
+        foreach (string sentence in Regex.Split(text.Trim(), @"(?<=[.!?\u2026\u3002\uFF01\uFF1F])\s+|\r?\n+"))
+        {
+            string piece = sentence.Trim();
+            if (piece.Length == 0) continue;
+            if (current.Length > 0 && current.Length + 1 + piece.Length > max)
+            {
+                result.Add(current.ToString());
+                current.Clear();
+            }
+            if (current.Length > 0) current.Append(' ');
+            current.Append(piece);
+        }
+        if (current.Length > 0) result.Add(current.ToString());
+        if (result.Count == 0) result.Add(text);
+        return result;
+    }
+
+    static int Request(string text, string language, string voice, int total)
+    {
         string format = Str("response_format", "wav").ToLowerInvariant();
         var body = new Dictionary<string, object>();
         body["model"] = Str("model", "tts-1");
         body["input"] = text;
-        body["voice"] = Voice();
+        body["voice"] = voice;
         body["response_format"] = format;
         if (Bool("send_language", true)) body["language"] = language;
         if (Bool("send_reference_audio", false) && reference != null)
@@ -197,16 +239,14 @@ static class Worker
         using (var stream = request.GetRequestStream())
             stream.Write(payload, 0, payload.Length);
 
-        int sent;
         try
         {
             using (var response = (HttpWebResponse)request.GetResponse())
             using (var stream = response.GetResponseStream())
             {
                 if (format == "pcm")
-                    sent = StreamPcm(stream, Int("pcm_sample_rate", Rate));
-                else
-                    sent = Emit(DecodeWav(ReadAll(stream)));
+                    return StreamPcm(stream, Int("pcm_sample_rate", Rate), total);
+                return EmitPart(DecodeWav(ReadAll(stream)), total);
             }
         }
         catch (WebException e)
@@ -218,9 +258,6 @@ static class Worker
                 detail = reader.ReadToEnd();
             throw new IOException("HTTP " + (int)failed.StatusCode + ": " + detail.Substring(0, Math.Min(300, detail.Length)));
         }
-        if (sent == 0) throw new IOException("Server returned no audio.");
-        Log(string.Format("ok voice={0} ref={1} lang={2} chars={3} audio={4:0.0}s took={5:0.00}s",
-            body["voice"], referenceHash, language, text.Length, sent / (double)Rate, (DateTime.UtcNow - started).TotalSeconds));
     }
 
     static string Voice()
@@ -235,9 +272,8 @@ static class Worker
     // ---------------------------------------------------------------- audio
 
     // Raw 16-bit little-endian mono PCM, streamed to the game while it downloads.
-    static int StreamPcm(Stream stream, int rate)
+    static int StreamPcm(Stream stream, int rate, int total)
     {
-        int total = 0;
         var buffer = new byte[rate / 5 * 2];
         int filled = 0, read;
         while ((read = stream.Read(buffer, filled, buffer.Length - filled)) > 0)
@@ -258,11 +294,6 @@ static class Worker
         for (int i = 0; i < samples.Length; i++)
             samples[i] = BitConverter.ToInt16(data, i * 2) / 32768f;
         return samples;
-    }
-
-    static int Emit(float[] samples)
-    {
-        return EmitPart(samples, 0);
     }
 
     static int EmitPart(float[] samples, int total)

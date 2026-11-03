@@ -8,6 +8,9 @@ which you can install on their own or together:
 | **1 – Lower the hardware requirements** | Qwen3 TTS also runs on weaker PCs: less VRAM and RAM, and optionally no suitable GPU at all. |
 | **2 – Offload TTS to a server** | Speech is synthesized on a machine in your local network that offers the OpenAI speech API (`POST /v1/audio/speech`). The gaming PC then needs neither a GPU for Qwen nor the 2 GB model download. |
 
+Both patches also raise the game's Qwen timeouts (see [Timeouts](#timeouts)), so a slow PC or
+server no longer turns Qwen off for the whole session.
+
 The patch ships **no game files**. It modifies the installed files on the player's machine
 and backs them up first. It only works on Windows with the Steam version of the game
 (app ID 4954910).
@@ -61,7 +64,8 @@ py patch_qwen.py --restore
 ```
 
 Use `--game-dir "D:\Steam\steamapps\common\Scam With Your Friends"` to set the game folder,
-and `--config my-server.json` to use your own server configuration.
+and `--config my-server.json` to use your own server configuration. `--keep-timeouts` leaves
+the game's original Qwen timeouts alone.
 
 ### Without Python (manual)
 
@@ -102,6 +106,26 @@ Good to know:
 - Values that are too low can crash the Qwen worker (not the game). The game then uses its
   regular voice for the rest of the session.
 
+## Timeouts
+
+A single Qwen timeout or error makes the game call `Fail()`. After that, Qwen stays off **for
+the rest of the session** and the game falls back to its other speech models (Pocket/Moss).
+If none of those is enabled for the language, callers stay **completely silent**: their text
+appears immediately, but there is no voice. The Unity log then contains
+`[Qwen3 TTS] Worker stopped; using existing speech for this session.`
+
+Both patches therefore raise these limits:
+
+| Limit | Original | Patched |
+|-------|---------:|--------:|
+| Preparation (hashing the runtime files, starting the worker) | 20 s | 120 s |
+| Time until the first audio of a line | 20 s | 60 s |
+| Synthesis of a line, until the first audio | 30 s | 90 s |
+| Synthesis of a line, between two audio chunks | 30 s | 60 s |
+
+Before every session's first line, the game checks the SHA-256 of about 1 GB of CUDA/Vulkan
+runtime files. On a slow PC that alone can take longer than 20 s.
+
 ## Patch 2 in detail
 
 ```
@@ -110,8 +134,11 @@ Game ──stdin/stdout──▶ QwenTtsWorker.exe (proxy) ──HTTP──▶ T
 ```
 
 - The original `QwenTtsWorker.exe` is replaced by a proxy that speaks the same protocol.
-  The checksum in `runtime-manifest.json` is updated to match.
+- `runtime-manifest.json` then lists only the worker and the license files. The game no
+  longer hashes the ~1 GB of CUDA/Vulkan DLLs, which the remote worker doesn't need.
 - The hardware check always reports "eligible", and the model download is skipped.
+- Long lines are sent to the server sentence by sentence. The first sentence plays while
+  the server is still working on the next one, so the first audio arrives within seconds.
 - If the server is unreachable or returns an error, the game simply uses its regular voice.
 
 ### Request sent to the server
@@ -164,7 +191,9 @@ Template: [config/qwen-remote.example.json](config/qwen-remote.example.json).
 | `api_key` | Sent as `Authorization: Bearer …` when set. |
 | `model`, `voice` | Passed to the server unchanged. |
 | `response_format` | `wav` or `pcm`. For `pcm`, `pcm_sample_rate` sets the rate (default 24000). |
-| `timeout_seconds` | HTTP timeout. The game itself gives up after 20 s without audio. |
+| `timeout_seconds` | HTTP timeout per request. The patched game waits up to 60 s for the first audio. |
+| `split_sentences` | Sends long lines sentence by sentence (default `true`). |
+| `max_segment_chars` | Short sentences are combined up to this length per request (default 120). |
 | `send_language` | Sends the language as `language` (`English`, `German`, …). |
 | `send_reference_audio` | Sends the character's voice sample. |
 | `reference_audio_field` | Field name for the voice sample (default `ref_audio`). |
@@ -183,10 +212,12 @@ configuration, the log `qwen-remote.log` and `remote-voices`.
 
 | Symptom | Fix |
 |---------|-----|
-| The game keeps using its regular voice | Is "Qwen3 TTS" prioritized in the voice settings? Does the installer show the status "Patched"? |
+| The game keeps using its regular voice | Is "Qwen3 TTS" prioritized in the voice settings **for the language the callers speak**? The order is set per language. Does the installer show the status "Patched"? |
+| Callers' text appears immediately but there is no voice at all | Qwen was turned off for the session (see [Timeouts](#timeouts)), and no other speech model is enabled. Check the Unity log for `Worker stopped`, install version 1.1 or later, and restart the game. Keeping Pocket or Moss enabled as a fallback avoids total silence. |
 | `qwen-remote.log`: *not reachable* | Check the server IP and port, open the firewall on the server, and make the server listen on `0.0.0.0`. |
+| No `qwen-remote.log` at all | The remote worker never started. Usually the preparation timed out (see [Timeouts](#timeouts)); version 1.1 fixes the main cause. |
 | `HTTP 400/422` | The server doesn't know a field. Set *Extra fields* to `{}` or turn off "Send voice sample". |
-| Speech arrives late or cuts off | The server is too slow (limit: 20 s until the first audio). Use a smaller model or `pcm`. |
+| Speech arrives late or cuts off | The server is too slow (limit: 60 s until the first audio). Use a smaller model, `pcm`, or a lower `max_segment_chars`. |
 | *unsupported game version* | The game update changed the code. Wait for a new patch version. |
 | Unity log | `%USERPROFILE%\AppData\LocalLow\Jatater Worldwide\Scam With Your Friends\Player.log`, entries tagged `[Qwen3 TTS]`. |
 

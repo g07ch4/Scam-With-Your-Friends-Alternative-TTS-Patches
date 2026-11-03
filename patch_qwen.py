@@ -30,6 +30,8 @@ def main():
     p.add_argument("--threads", type=int, default=DEFAULTS["threads"], choices=range(0, 9),
                    help="min CPU threads (default %d, original %d)" % (DEFAULTS["threads"], ORIGINAL["threads"]))
     p.add_argument("--allow-cpu", action="store_true", help="allow systems without a suitable GPU (slow!)")
+    p.add_argument("--keep-timeouts", action="store_true",
+                   help="keep the game's Qwen timeouts (default: raise them so slow PCs/servers don't disable Qwen)")
     p.add_argument("--remote", action="store_true", help="send TTS to a server in the local network")
     p.add_argument("--config", help="server config JSON (default: keep the installed one, else the example)")
     p.add_argument("--url", help="server endpoint, e.g. http://192.168.1.50:8000/v1/audio/speech")
@@ -82,7 +84,7 @@ def main():
             return 1
 
         options = Options(lowreq=args.lowreq, remote=args.remote, allow_cpu=args.allow_cpu, vram=args.vram,
-                          ram=args.ram, avail=args.avail, threads=args.threads)
+                          ram=args.ram, avail=args.avail, threads=args.threads, timeouts=not args.keep_timeouts)
         game.install(options, remote_config=config if args.remote else None)
         return 0
     except (PatchError, IOError, OSError, ValueError) as e:

@@ -6,6 +6,8 @@
   "response_format": "wav",
   "pcm_sample_rate": 24000,
   "timeout_seconds": 25,
+  "split_sentences": true,
+  "max_segment_chars": 120,
   "send_language": true,
   "send_reference_audio": true,
   "reference_audio_field": "ref_audio",
