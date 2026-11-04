@@ -112,6 +112,47 @@ the OpenAI speech API using `ref_audio` + `x_vector_only_mode` + `task_type: Bas
 The expected hashes exist only in the manifest, not in the code, so the patcher can rewrite
 the file list freely.
 
+## Speech recognition (patch 3)
+
+`WhisperVcPipeline` (in `ScriptsAssDef.dll`) collects microphone frames at 16 kHz, detects speech
+and calls `QueueInference(samples, isFinal)`:
+
+- while you speak, every `partialIntervalSeconds` with the whole utterance so far (`isFinal = false`);
+- after `silenceToFinalizeSeconds` of silence, once with the final utterance (`isFinal = true`).
+
+`RunInferenceAsync` chooses the recognizer:
+
+```
+useMoonshine          = WindowsSpeechCompatibility.UseMoonshine(lang)
+                      = PreferMoonshine && (lang == "en" || (!arm64 && SupportsLanguage(lang)))
+useStreamingMoonshine = useMoonshine && MoonshineStreamingRuntime.SupportsLanguage(lang)   // ar de ja zh es
+```
+
+With `useStreamingMoonshine` the pipeline starts
+`new ArmSpeechWorkerClient(StreamingAssets/Moonshine/runtime, "X64")` and calls
+`TranscribeAsync(ModelRoot(lang), lang, samples)` (time limit 120 s). Patch 3 makes `PreferMoonshine`
+and `SupportsLanguage` return `true` and replaces the helper process. The removed Gladia provider
+only survives as the constant `PauseMenuToolkitController.RemovedSpeechRecognition = "Gladia"`.
+
+Helper protocol (`Kolkata.Speech.ArmSpeechProtocol`; integers little endian, text = `i32` byte
+length + UTF-8):
+
+| Direction | Message |
+|-----------|---------|
+| Game → helper | `1` (hello) |
+| Helper → game | `1`, `"X64"` |
+| Game → helper | `1`, `model:text`, `language:text`, `n:i32`, `n × f32` (16 kHz mono, at most 480,000 samples) |
+| Helper → game | `1`, `transcript:text`, `confidence:f32` (0…1) |
+| Helper → game | on error: `4`, `message:text` → the game sets `moonshineStreamingFailed` for the session |
+
+`ArmSpeechRuntimeFiles.Validate` reads `runtime-manifest.json` (`protocol == 1`,
+`architecture == "X64"`, `files` as a name → SHA-256 map), requires entries for
+`ArmSpeechWorker.exe` and `ArmSpeechNative.dll`, hashes every listed file and checks that both are
+x64 PE files. The helper runs in a job object with a 4 GB memory limit.
+
+The partial-transcript patch replaces the `ldarg.0` after `ldarg.2; brtrue.s` in `QueueInference`
+with `ret`, so non-final requests return immediately.
+
 ## Backups and updates
 
 - The patcher creates `<file>.orig` next to every file it changes. It keeps its state in

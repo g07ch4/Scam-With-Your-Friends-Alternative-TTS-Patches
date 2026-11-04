@@ -1,4 +1,4 @@
-"""Builds dist/swyf-qwen-tts-patch-<version>.zip with a prebuilt QwenRemoteWorker.exe.
+"""Builds dist/swyf-qwen-tts-patch-<version>.zip with prebuilt QwenRemoteWorker.exe and GladiaSttWorker.exe.
 
   py tools/build_release.py
 """
@@ -10,7 +10,7 @@ import zipfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 from qwen_patcher import VERSION, build_worker  # noqa: E402
-from qwen_patcher.paths import BUNDLED_WORKER  # noqa: E402
+from qwen_patcher.paths import BUNDLED_STT_WORKER, BUNDLED_WORKER, STT_WORKER_SOURCE  # noqa: E402
 
 
 def tracked_files():
@@ -20,11 +20,12 @@ def tracked_files():
 
 def main():
     build_worker(BUNDLED_WORKER)
+    build_worker(BUNDLED_STT_WORKER, STT_WORKER_SOURCE)
     name = "swyf-qwen-tts-patch-%s" % VERSION
     os.makedirs(os.path.join(ROOT, "dist"), exist_ok=True)
     target = os.path.join(ROOT, "dist", name + ".zip")
     with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as z:
-        for rel in tracked_files() + [os.path.relpath(BUNDLED_WORKER, ROOT).replace(os.sep, "/")]:
+        for rel in tracked_files() + [os.path.relpath(p, ROOT).replace(os.sep, "/") for p in (BUNDLED_WORKER, BUNDLED_STT_WORKER)]:
             z.write(os.path.join(ROOT, rel), name + "/" + rel)
     print("Built", target)
 

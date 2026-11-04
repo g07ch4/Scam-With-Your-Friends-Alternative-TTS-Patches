@@ -1,4 +1,4 @@
-"""Graphical installer for the Qwen3-TTS patches (Scam With Your Friends)."""
+"""Graphical installer for the Qwen3-TTS and Gladia speech recognition patches (Scam With Your Friends)."""
 import json
 import os
 import queue
@@ -11,8 +11,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from qwen_patcher import Game, Options, PatchError, VERSION, find_game_dirs, load_config  # noqa: E402
 from qwen_patcher.core import DEFAULTS, ORIGINAL, is_game_dir  # noqa: E402
-from qwen_patcher.paths import EXAMPLE_CONFIG  # noqa: E402
+from qwen_patcher.paths import EXAMPLE_CONFIG, STT_EXAMPLE_CONFIG  # noqa: E402
 from qwen_patcher.remote import test_server  # noqa: E402
+from qwen_patcher.stt import SttGame, SttOptions, test_key  # noqa: E402
 
 STATUS_TEXT = {
     "original": "Not patched",
@@ -25,7 +26,7 @@ class Installer(tk.Tk):
     def __init__(self):
         tk.Tk.__init__(self)
         self.title("Scam With Your Friends – Qwen3 TTS Patch %s" % VERSION)
-        self.minsize(640, 600)
+        self.minsize(640, 780)
         self.events = queue.Queue()
         self.busy = False
 
@@ -40,9 +41,14 @@ class Installer(tk.Tk):
         self.send_reference = tk.BooleanVar()
         self.send_language = tk.BooleanVar()
         self.dump_references = tk.BooleanVar()
+        self.gladia = tk.BooleanVar(value=False)
+        self.gladia_fields = {k: tk.StringVar() for k in ("api_key", "mode", "language")}
+        self.gladia_partials = tk.BooleanVar(value=False)
+        self.stt_status = tk.StringVar(value="")
 
         self._build()
         self._load_config(load_config(EXAMPLE_CONFIG))
+        self._load_stt_config(load_config(STT_EXAMPLE_CONFIG))
         dirs = find_game_dirs()
         self.game_combo["values"] = dirs
         if dirs:
@@ -124,23 +130,50 @@ class Installer(tk.Tk):
         test.grid(row=10, column=2, sticky="e", pady=(4, 0))
         self.remote_widgets += [self.extra, test]
 
+        stt = ttk.LabelFrame(body, text="Patch 3 – Speech recognition through Gladia (your own API key)", padding=8)
+        stt.grid(row=3, column=0, sticky="ew", **pad)
+        stt.columnconfigure(1, weight=1)
+        ttk.Checkbutton(stt, text="Enable", variable=self.gladia, command=self._toggle).grid(
+            row=0, column=0, sticky="w")
+        ttk.Label(stt, textvariable=self.stt_status, foreground="#555").grid(row=0, column=1, columnspan=2, sticky="w")
+        self.stt_widgets = []
+        ttk.Label(stt, text="Gladia API key").grid(row=1, column=0, sticky="w", pady=2)
+        key = ttk.Entry(stt, textvariable=self.gladia_fields["api_key"], show="•")
+        key.grid(row=1, column=1, columnspan=2, sticky="ew", padx=(6, 0))
+        ttk.Label(stt, text="Mode / Language").grid(row=2, column=0, sticky="w", pady=2)
+        row = ttk.Frame(stt)
+        row.grid(row=2, column=1, columnspan=2, sticky="w", padx=(6, 0))
+        mode = ttk.Combobox(row, textvariable=self.gladia_fields["mode"], values=("prerecorded", "live"),
+                            state="readonly", width=12)
+        mode.pack(side="left")
+        lang = ttk.Entry(row, textvariable=self.gladia_fields["language"], width=8)
+        lang.pack(side="left", padx=8)
+        ttk.Label(row, text="empty = the game's call language, auto = detect", foreground="#555").pack(side="left")
+        partials = ttk.Checkbutton(stt, text="Partial transcripts while speaking (sends audio repeatedly, costs more)",
+                                   variable=self.gladia_partials)
+        partials.grid(row=3, column=0, columnspan=3, sticky="w")
+        test_stt = ttk.Button(stt, text="Test API key", command=self._test_key)
+        test_stt.grid(row=4, column=2, sticky="e", pady=(4, 0))
+        self.stt_widgets += [key, mode, lang, partials, test_stt]
+
         buttons = ttk.Frame(body)
-        buttons.grid(row=3, column=0, sticky="ew", **pad)
+        buttons.grid(row=4, column=0, sticky="ew", **pad)
         self.install_button = ttk.Button(buttons, text="Install", command=self._install)
         self.install_button.pack(side="right")
         ttk.Button(buttons, text="Uninstall", command=self._uninstall).pack(side="right", padx=6)
         ttk.Button(buttons, text="Open runtime folder", command=self._open_runtime).pack(side="left")
 
         logf = ttk.LabelFrame(body, text="Log", padding=4)
-        logf.grid(row=4, column=0, sticky="nsew", **pad)
-        body.rowconfigure(4, weight=1)
+        logf.grid(row=5, column=0, sticky="nsew", **pad)
+        body.rowconfigure(5, weight=1)
         self.log_text = tk.Text(logf, height=8, state="disabled", font=("Consolas", 9))
         self.log_text.pack(fill="both", expand=True)
 
     # ---------------------------------------------------------------- state
 
     def _toggle(self):
-        for widgets, on in ((self.low_widgets, self.lowreq.get()), (self.remote_widgets, self.remote.get())):
+        for widgets, on in ((self.low_widgets, self.lowreq.get()), (self.remote_widgets, self.remote.get()),
+                            (self.stt_widgets, self.gladia.get())):
             for w in widgets:
                 w.configure(state="normal" if on else "disabled")
 
@@ -188,8 +221,26 @@ class Installer(tk.Tk):
         })
         return config
 
+    def _load_stt_config(self, config):
+        self.loaded_stt_config = dict(config)
+        for key, var in self.gladia_fields.items():
+            var.set(str(config.get(key, "")))
+        self.gladia_fields["mode"].set(config.get("mode") or "prerecorded")
+
+    def _stt_config(self):
+        config = dict(self.loaded_stt_config)
+        key = self.gladia_fields["api_key"].get().strip()
+        if not key:
+            raise PatchError("Please enter your Gladia API key (app.gladia.io, API keys).")
+        config.update({"api_key": key, "mode": self.gladia_fields["mode"].get() or "prerecorded",
+                       "language": self.gladia_fields["language"].get().strip().lower()})
+        return config
+
     def _game(self):
         return Game(self.game_dir.get().strip())
+
+    def _stt_game(self):
+        return SttGame(self.game_dir.get().strip())
 
     def refresh(self):
         path = self.game_dir.get().strip()
@@ -214,6 +265,17 @@ class Installer(tk.Tk):
                 self._load_config(load_config(game.config))
             except (OSError, ValueError):
                 pass
+        try:
+            stt = self._stt_game()
+            stt_status, stt_options = stt.status()
+            self.stt_status.set("Status: " + STATUS_TEXT[stt_status])
+            if stt_options is not None:
+                self.gladia.set(True)
+                self.gladia_partials.set(stt_options.get("partials", False))
+            if os.path.isfile(stt.config):
+                self._load_stt_config(load_config(stt.config))
+        except (PatchError, OSError, ValueError) as e:
+            self.stt_status.set(str(e))
         self._toggle()
 
     # ---------------------------------------------------------------- actions
@@ -225,7 +287,8 @@ class Installer(tk.Tk):
 
     def _open_runtime(self):
         try:
-            os.startfile(self._game().runtime)
+            only_stt = self.gladia.get() and not (self.lowreq.get() or self.remote.get())
+            os.startfile(self._stt_game().runtime if only_stt else self._game().runtime)
         except (PatchError, OSError) as e:
             messagebox.showerror("Error", str(e))
 
@@ -235,13 +298,34 @@ class Installer(tk.Tk):
             options = Options(lowreq=self.lowreq.get(), remote=self.remote.get(), allow_cpu=self.allow_cpu.get(),
                               **{k: v.get() for k, v in self.limits.items()})
             config = self._config() if options.remote else None
+            gladia = self.gladia.get()
+            stt = self._stt_game() if gladia else None
+            stt_config = self._stt_config() if gladia else None
+            stt_options = SttOptions(partials=self.gladia_partials.get())
         except (PatchError, tk.TclError, ValueError) as e:
             messagebox.showerror("Check your input", str(e))
             return
-        if not (options.lowreq or options.remote):
+        tts = options.lowreq or options.remote
+        if not (tts or gladia):
             messagebox.showinfo("Nothing selected", "Please enable at least one patch.")
             return
-        self._run(lambda log: game.install(options, remote_config=config, log=log))
+
+        def job(log):
+            # Unticked patches that are currently installed are removed, so the game matches the form.
+            if tts:
+                game.install(options, remote_config=config, log=log)
+            elif game.status()[0] != "original":
+                game.uninstall(log=log)
+            if gladia:
+                stt.install(stt_options, stt_config, log=log)
+            else:
+                try:
+                    current = self._stt_game()
+                except PatchError:
+                    return
+                if current.status()[0] != "original":
+                    current.uninstall(log=log)
+        self._run(job)
 
     def _uninstall(self):
         try:
@@ -249,8 +333,15 @@ class Installer(tk.Tk):
         except PatchError as e:
             messagebox.showerror("Error", str(e))
             return
-        if messagebox.askyesno("Uninstall", "Restore the original files?"):
-            self._run(game.uninstall)
+        def job(log):
+            game.uninstall(log=log)
+            try:
+                stt = self._stt_game()
+            except PatchError:
+                return
+            stt.uninstall(log=log)
+        if messagebox.askyesno("Uninstall", "Restore the original files (all patches)?"):
+            self._run(job)
 
     def _test(self):
         try:
@@ -259,6 +350,14 @@ class Installer(tk.Tk):
             messagebox.showerror("Check your input", str(e))
             return
         self._run(lambda log: log(test_server(config)), "Testing %s …" % config["url"])
+
+    def _test_key(self):
+        try:
+            config = self._stt_config()
+        except PatchError as e:
+            messagebox.showerror("Check your input", str(e))
+            return
+        self._run(lambda log: log(test_key(config)[1]), "Checking the Gladia API key …")
 
     def _run(self, job, start_message=None):
         if self.busy:

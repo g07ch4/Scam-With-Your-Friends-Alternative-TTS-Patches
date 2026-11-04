@@ -138,13 +138,13 @@ def csc_path():
     return None
 
 
-def build_worker(out_path=BUNDLED_WORKER):
-    """Compile QwenRemoteWorker.exe with the C# compiler that ships with Windows."""
+def build_worker(out_path=BUNDLED_WORKER, source=WORKER_SOURCE):
+    """Compile a worker (QwenRemoteWorker.exe by default) with the C# compiler that ships with Windows."""
     csc = csc_path()
     if not csc:
         raise PatchError(".NET Framework 4 C# compiler (csc.exe) not found.")
     result = subprocess.run([csc, "-nologo", "-optimize", "-platform:x64", "-target:exe",
-                             "-r:System.Web.Extensions.dll", "-out:" + out_path, WORKER_SOURCE],
+                             "-r:System.Web.Extensions.dll", "-out:" + out_path, source],
                             capture_output=True, text=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     if result.returncode != 0:
         raise PatchError("Building the worker failed:\n" + result.stdout + result.stderr)

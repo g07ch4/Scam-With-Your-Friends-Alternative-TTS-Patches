@@ -122,7 +122,7 @@ loaded; server http://192.168.1.50:8000/v1/audio/speech
 ok voice=default ref=88235bfe873b lang=English chars=42 parts=1 audio=3.1s first=0.84s took=0.84s
 ```
 
-## 3. Raise the Qwen timeouts (recommended for both patches)
+## 3. Raise the Qwen timeouts (recommended for patches 1 and 2)
 
 A single Qwen timeout turns Qwen off until the game restarts. If no other speech model is
 enabled, callers then stay silent. These replacements in `Assembly-CSharp.dll` raise the
@@ -164,3 +164,61 @@ between audio chunks. Apply them on top of patch 1 or 2; each search must have e
 |---|---|
 | Find | `7B FB 13 00 04 23 00 00 00 00 00 00 3E 40 28 B5 01 00 0A 6F C8 01 00 0A 02 03 02 7B` |
 | Replace | `7B FB 13 00 04 23 00 00 00 00 00 00 4E 40 28 B5 01 00 0A 6F C8 01 00 0A 02 03 02 7B` |
+
+## 4. Patch 3 – Speech recognition through Gladia
+
+Make backups first (add `.orig`):
+
+- `Scam With Your Friends_Data\Managed\ScriptsAssDef.dll`
+- `Scam With Your Friends_Data\StreamingAssets\Moonshine\runtime\ArmSpeechWorker.exe`
+- `Scam With Your Friends_Data\StreamingAssets\Moonshine\runtime\runtime-manifest.json`
+
+### 4a. Patch `ScriptsAssDef.dll`
+
+Open it in HxD and use **Search → Replace** with **Hex-values**; each search must have exactly
+**1** match. The values below belong to the October 29, 2026 build.
+
+**Always use the Moonshine helper** (`WindowsSpeechCompatibility.PreferMoonshine`)
+
+| | Hex |
+|---|---|
+| Find | `28 5D 3A 00 06 3A 82 00 00 00 7E E5` |
+| Replace | `17 2A 3A 00 06 3A 82 00 00 00 7E E5` |
+
+**The helper handles every language** (`MoonshineStreamingRuntime.SupportsLanguage`)
+
+| | Hex |
+|---|---|
+| Find | `02 72 FA 54 00 70 28 13 00 00 0A 2D 33 02` |
+| Replace | `17 2A FA 54 00 70 28 13 00 00 0A 2D 33 02` |
+
+**No partial transcripts** (optional, recommended: one Gladia request per utterance)
+
+| | Hex |
+|---|---|
+| Find | `28 5D 3A 00 06 2C 09 02 7B 5E 2C 00 04 2C 01 2A 04 2D 16 02 7B 50 2C 00 04` |
+| Replace | `28 5D 3A 00 06 2C 09 02 7B 5E 2C 00 04 2C 01 2A 04 2D 16 2A 7B 50 2C 00 04` |
+
+### 4b. Replace the helper
+
+1. Copy `worker\GladiaSttWorker.exe` from the release ZIP to `…\Moonshine\runtime\` and rename it
+   to **`ArmSpeechWorker.exe`**.
+2. Copy `config\gladia.example.json` to `…\Moonshine\runtime\gladia.json` and enter your `api_key`.
+
+### 4c. Update the manifest
+
+Run this in PowerShell from the game folder:
+
+```powershell
+$rt = "Scam With Your Friends_Data\StreamingAssets\Moonshine\runtime"
+$m = Get-Content "$rt\runtime-manifest.json" -Raw | ConvertFrom-Json
+$files = [ordered]@{}
+foreach ($n in "ArmSpeechWorker.exe", "ArmSpeechNative.dll", "moonshine-LICENSE.txt") { $files[$n] = (Get-FileHash "$rt\$n").Hash.ToLower() }
+$m.files = [pscustomobject]$files
+$m | ConvertTo-Json -Depth 5 | Set-Content "$rt\runtime-manifest.json" -Encoding UTF8
+```
+
+### 4d. Test
+
+Start a call and speak. `…\Moonshine\runtime\gladia.log` should show lines like
+`ok lang=en audio=1.8s took=1.40s conf=0.92 text="hello, who is this?"`.

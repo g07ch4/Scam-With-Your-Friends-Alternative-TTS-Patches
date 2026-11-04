@@ -1,12 +1,13 @@
 # Qwen3 TTS patch for *Scam With Your Friends*
 
-An unofficial community patch for the game's Qwen3 voice synthesis. It has two parts,
-which you can install on their own or together:
+An unofficial community patch for the game's voice synthesis (Qwen3 TTS) and speech
+recognition. It has three parts, which you can install on their own or together:
 
 | Patch | What it does |
 |-------|--------------|
 | **1 – Lower the hardware requirements** | Qwen3 TTS also runs on weaker PCs: less VRAM and RAM, and optionally no suitable GPU at all. |
 | **2 – Offload TTS to a server** | Speech is synthesized on a machine in your local network that offers the OpenAI speech API (`POST /v1/audio/speech`). The gaming PC then needs neither a GPU for Qwen nor the 2 GB model download. |
+| **3 – Speech recognition through Gladia** | What you say to the callers is transcribed by the [Gladia](https://www.gladia.io) API with **your own API key** instead of the local Whisper/Moonshine models. The game used to offer Gladia itself, but the Steam version had to remove it. |
 
 Both patches also raise the game's Qwen timeouts (see [Timeouts](#timeouts)), so a slow PC or
 server no longer turns Qwen off for the whole session.
@@ -31,8 +32,10 @@ and backs them up first. It only works on Windows with the Steam version of the 
    - **Patch 1:** adjust the minimum values or keep the defaults.
    - **Patch 2:** enter the server URL, e.g. `http://192.168.1.50:8000/v1/audio/speech`,
      then click **Test connection**.
+   - **Patch 3:** enter your Gladia API key, then click **Test API key**.
 5. Click **Install**.
-6. In the game's voice settings, **prioritize "Qwen3 TTS"**.
+6. In the game's voice settings, **prioritize "Qwen3 TTS"** (patches 1 and 2). Patch 3 needs
+   no setting in the game; restart the game if it was running.
 
 To remove the patch, click **Uninstall** in the installer. This restores the original files
 bit for bit.
@@ -53,6 +56,10 @@ py patch_qwen.py --remote --url http://192.168.1.50:8000/v1/audio/speech
 
 ```bash
 py patch_qwen.py --test-server
+```
+
+```bash
+py patch_qwen.py --gladia --gladia-key YOUR_KEY
 ```
 
 ```bash
@@ -219,7 +226,54 @@ configuration, the log `qwen-remote.log` and `remote-voices`.
 | `HTTP 400/422` | The server doesn't know a field. Set *Extra fields* to `{}` or turn off "Send voice sample". |
 | Speech arrives late or cuts off | The server is too slow (limit: 60 s until the first audio). Use a smaller model, `pcm`, or a lower `max_segment_chars`. |
 | *unsupported game version* | The game update changed the code. Wait for a new patch version. |
-| Unity log | `%USERPROFILE%\AppData\LocalLow\Jatater Worldwide\Scam With Your Friends\Player.log`, entries tagged `[Qwen3 TTS]`. |
+| Gladia: *"No speech was recognized"* | See `Moonshine\runtime\gladia.log`: `HTTP 401` means a wrong API key, `FAILED … not reachable` a network problem. No `gladia.log` at all: the helper never started; check that the installer shows Patch 3 as "Patched" and restart the game. |
+| Unity log | `%USERPROFILE%\AppData\LocalLow\Jatater Worldwide\Scam With Your Friends\Player.log`, entries tagged `[Qwen3 TTS]`, `[SpeechTiming]` and `[SpeechModel]`. |
+
+---
+
+## Patch 3 in detail – Gladia speech recognition
+
+```
+Microphone ─▶ game (voice detection) ─stdin/stdout─▶ ArmSpeechWorker.exe (Gladia helper) ─HTTPS─▶ api.gladia.io
+```
+
+- The game's Moonshine speech helper (`StreamingAssets\Moonshine\runtime\ArmSpeechWorker.exe`) is a
+  separate process. The patch replaces it with `GladiaSttWorker.exe`, which speaks the same protocol and
+  sends every finished utterance (16 kHz mono) to Gladia.
+- `ScriptsAssDef.dll` is changed so the game always uses this helper, for every language, instead of
+  the local Whisper model. The speech recognition choice in the game's settings no longer matters.
+- By default the game's **partial transcripts** (the live preview while you are still talking) are
+  turned off: the game would otherwise re-send the whole growing utterance every few hundred
+  milliseconds, and Gladia bills every request. You can turn them back on in the installer.
+- The language is the game's call language. Set `language` to force one, or `auto` to let Gladia
+  detect it.
+- If Gladia is unreachable or rejects a request, that one utterance comes back empty (*"No speech
+  was recognized"*) and the reason is written to `gladia.log`. The helper never reports an error to
+  the game, because a single error would turn speech recognition off until the game restarts.
+
+**Costs and privacy:** your voice recordings are sent to Gladia and billed to your account, see
+[gladia.io/pricing](https://www.gladia.io/pricing). Gladia's free tier includes some hours per
+month. Your API key is stored in plain text in `gladia.json` on your PC.
+
+### Configuration (`Moonshine\runtime\gladia.json`)
+
+Template: [config/gladia.example.json](config/gladia.example.json).
+
+| Field | Meaning |
+|-------|---------|
+| `api_key` | Your Gladia API key ([app.gladia.io](https://app.gladia.io)). The `GLADIA_API_KEY` environment variable overrides it. |
+| `mode` | `prerecorded` (default; upload + transcription, HTTP only) or `live` (Gladia's real-time WebSocket API, usually faster). |
+| `model` | Optional, e.g. `solaria-1`. Empty uses Gladia's default. |
+| `language` | Empty: the game's call language. A code like `de` forces it, `auto` detects it. |
+| `code_switching` | Let Gladia switch languages between utterances (only with `auto`). |
+| `timeout_seconds` | Limit per utterance (default 20). |
+| `poll_interval_ms` | How often `prerecorded` asks for the result (default 250). |
+| `live_region` | `live` only: `eu-west` or `us-west`. |
+| `extra_body` | Merged into the transcription request as is, e.g. `{"custom_vocabulary": ["IRS"]}`. |
+| `log_text` | Write the recognized text to `gladia.log` (default `true`). |
+
+Every line of `gladia.log` shows the language, audio length, time taken and the result, e.g.
+`ok lang=de audio=2.4s took=1.62s conf=0.93 text="Guten Tag, hier ist Ihre Bank."`
 
 ---
 
@@ -229,8 +283,9 @@ configuration, the log `qwen-remote.log` and `remote-voices`.
 qwen_patcher/   patch logic (core.py), server test (remote.py)
 installer.pyw   graphical installer (tkinter)
 patch_qwen.py   command line
-worker/         source of the remote worker (C# 5, builds with Windows' own csc.exe)
-tests/          worker against a mock server; patcher against a copy of the real game files
+qwen_patcher/stt.py  Gladia speech recognition patch
+worker/         sources of the remote TTS worker and the Gladia helper (C# 5, build with Windows' own csc.exe)
+tests/          workers against mock servers (OpenAI TTS, Gladia HTTP + WebSocket); patchers against copies of the real game files
 tools/          builds the release ZIP
 docs/           manual installation, server compatibility, technical details
 ```

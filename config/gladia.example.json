@@ -1,0 +1,12 @@
+{
+  "api_key": "",
+  "mode": "prerecorded",
+  "model": "",
+  "language": "",
+  "code_switching": false,
+  "timeout_seconds": 20,
+  "poll_interval_ms": 250,
+  "live_region": "",
+  "extra_body": {},
+  "log_text": true
+}
