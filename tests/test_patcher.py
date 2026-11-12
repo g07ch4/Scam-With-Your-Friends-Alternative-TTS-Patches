@@ -10,8 +10,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from qwen_patcher import Game, Options, PatchError, build_worker, find_game_dirs  # noqa: E402
-from qwen_patcher.core import (ELIGIBLE_SIG, OFF_GPU_AND, OFF_RAM, OFF_THREADS, OFF_VRAM,  # noqa: E402
-                               REMOTE_MANIFEST_FILES, TIMEOUTS, sha256)
+from qwen_patcher.core import ELIGIBLE_SIG, REMOTE_MANIFEST_FILES, TIMEOUTS, eligible_offsets, sha256  # noqa: E402
 
 SOURCE = os.environ.get("SWYF_GAME_DIR") or next(iter(find_game_dirs()), None)
 FILES = ("Scam With Your Friends_Data/Managed/Assembly-CSharp.dll",
@@ -49,13 +48,14 @@ class PatcherTest(unittest.TestCase):
             data = f.read()
         with open(self.game.dll + ".orig", "rb") as f:
             orig = f.read()
-        base = orig.find(ELIGIBLE_SIG)
-        self.assertEqual(struct.unpack_from("<i", data, base + OFF_VRAM)[0], 2048)
-        self.assertEqual(struct.unpack_from("<i", data, base + OFF_RAM)[0], 6000)
-        self.assertEqual(data[base + OFF_THREADS], 0x17)
-        self.assertEqual(data[base + OFF_GPU_AND + 1], 0x06)  # GPU still required
+        at = eligible_offsets(orig)
+        self.assertEqual(struct.unpack_from("<i", data, at["vram"])[0], 2048)
+        self.assertEqual(struct.unpack_from("<i", data, at["ram"])[0], 6000)
+        self.assertEqual(struct.unpack_from("<i", data, at["avail"])[0], 2500)
+        self.assertEqual(data[at["threads"]], 0x17)
+        self.assertEqual(data[at["gpu_and"] + 1], 0x06)  # GPU still required
         changed = [i for i, (a, b) in enumerate(zip(orig, data)) if a != b]
-        self.assertTrue(changed and all(base <= i < base + 0x9D for i in changed))  # only inside HardwareEligible
+        self.assertTrue(changed and all(at["base"] <= i < at["end"] for i in changed))  # only inside HardwareEligible
         self.assertEqual(self.game.status()[0], "patched")
 
     def test_remote_installs_worker_and_manifest(self):

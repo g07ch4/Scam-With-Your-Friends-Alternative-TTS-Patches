@@ -241,7 +241,8 @@ Microphone ─▶ game (voice detection) ─stdin/stdout─▶ ArmSpeechWorker.e
   separate process. The patch replaces it with `GladiaSttWorker.exe`, which speaks the same protocol and
   sends every finished utterance (16 kHz mono) to Gladia.
 - `ScriptsAssDef.dll` is changed so the game always uses this helper, for every language, instead of
-  the local Whisper model. The speech recognition choice in the game's settings no longer matters.
+  the local Whisper model or the game's own cloud recognition (added in the November 12, 2026 build,
+  billed as AI credits). The speech recognition choice in the game's settings no longer matters.
 - By default the game's **partial transcripts** (the live preview while you are still talking) are
   turned off: the game would otherwise re-send the whole growing utterance every few hundred
   milliseconds, and Gladia bills every request. You can turn them back on in the installer.

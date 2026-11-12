@@ -15,17 +15,13 @@ APP_ID = "4954910"
 #   ldarg.s 5 ; ldc.i4 5632 ; blt.s ; ldarg.s 6 ; ldc.i4 4318 (NVIDIA) ; beq.s ; ldarg.s 6 ; ldc.i4 4098 (AMD)
 ELIGIBLE_SIG = bytes.fromhex("0E05 2000160000 3250 0E06 20DE100000 2E09 0E06 2002100000".replace(" ", ""))
 OFF_VRAM = 0x03       # ldc.i4 5632   -> min VRAM MiB
-OFF_GPU_AND = 0x7D    # ldarg.0 ; ldloc.0 ; and   (windows64 && gpuOk)
-OFF_RAM = 0x84        # ldc.i4 15000  -> min system RAM MiB
-OFF_AVAIL = 0x8C      # ldc.i4 8192   -> min free RAM MiB
-OFF_THREADS = 0x94    # ldc.i4.4      -> min CPU threads
-ELIGIBLE_EXPECT = {
-    OFF_VRAM - 1: b"\x20\x00\x16\x00\x00",
-    OFF_GPU_AND: b"\x02\x06\x5F\x2C\x19",
-    OFF_RAM - 1: b"\x20\x98\x3A\x00\x00\x32\x11",
-    OFF_AVAIL - 1: b"\x20\x00\x20\x00\x00\x6A\x32\x08",
-    OFF_THREADS: b"\x1A\xFE\x04\x16\xFE\x01\x2A\x16\x2A",
-}
+# End of HardwareEligible. The GPU block list before it differs between game builds, so it is found by pattern:
+#   ldarg.0 ; ldloc.0 ; and (windows64 && gpuOk) ; brfalse.s ; ldarg.1 ; ldc.i4 15000 (min RAM) ; blt.s ;
+#   [ldarg.s 9 ; brfalse.s   - since the Nov 2026 build] ; ldarg.2 ; ldc.i4 8192 (min free RAM) ; conv.i8 ; blt.s ;
+#   ldarg.3 ; ldc.i4.4 (min threads) ; clt ; ldc.i4.0 ; ceq ; ret ; ldc.i4.0 ; ret
+ELIGIBLE_TAIL_RE = re.compile(rb"(\x02\x06\x5F\x2C.)\x03\x20(\x98\x3A\x00\x00)\x32.(?:\x0E\x09\x2C.)?"
+                              rb"\x04\x20(\x00\x20\x00\x00)\x6A\x32.\x05(\x1A)\xFE\x04\x16\xFE\x01\x2A\x16\x2A", re.S)
+ELIGIBLE_MAX_SIZE = 0x100
 
 # QwenTtsModels.<RefreshPreference>d__23.MoveNext:
 #   if (!supported) { SetState(5); leave }  if (verified) { SetState(3); leave }  -> download...
@@ -44,7 +40,7 @@ TIMEOUTS = {
     # <Prepare>d__44: new CancellationTokenSource(20 s) and expires = now + 20 s. Covers hashing
     # the ~1 GB runtime and starting the worker, which takes longer than that on slow PCs.
     "prepare_cancel": (rb"\x17\x28....\x07(" + _seconds(20) + rb")\x28....\x73....\x7D", 20, 120),
-    "prepare_expires": (rb"\x08\x28....(" + _seconds(20) + rb")\x58\x7D", 20, 120),
+    "prepare_expires": (rb"(?:\x08|\x7B....)\x28....(" + _seconds(20) + rb")\x58\x7D", 20, 120),
     # Prompt: firstAudioDeadline = now + 20 s and new CancellationTokenSource(30 s).
     "first_audio": (rb"\x02\x28....(" + _seconds(20) + rb")\x58\x7D....\x02\x06\xFE\x06", 20, 60),
     "prompt_cancel": (rb"\x7D....\x02(" + _seconds(30) + rb")\x28....\x73....\x7D", 30, 90),
@@ -151,33 +147,41 @@ def build_worker(out_path=BUNDLED_WORKER, source=WORKER_SOURCE):
     return out_path
 
 
-def patch_dll(data, options, log=print):
-    data = bytearray(data)
+def eligible_offsets(data):
+    """Absolute offsets of the values patched in QwenWorkerClient.HardwareEligible."""
     base = data.find(ELIGIBLE_SIG)
     if base < 0 or data.find(ELIGIBLE_SIG, base + 1) >= 0:
         raise PatchError("HardwareEligible not found unambiguously - unsupported game version.")
-    for off, expect in ELIGIBLE_EXPECT.items():
-        if data[base + off:base + off + len(expect)] != expect:
-            raise PatchError("HardwareEligible looks different than expected (offset 0x%X)." % off)
+    tail = list(ELIGIBLE_TAIL_RE.finditer(bytes(data[base:base + ELIGIBLE_MAX_SIZE])))
+    if len(tail) != 1:
+        raise PatchError("HardwareEligible looks different than expected - unsupported game version.")
+    m = tail[0]
+    return {"base": base, "end": base + m.end(), "vram": base + OFF_VRAM, "gpu_and": base + m.start(1),
+            "ram": base + m.start(2), "avail": base + m.start(3), "threads": base + m.start(4)}
+
+
+def patch_dll(data, options, log=print):
+    data = bytearray(data)
+    at = eligible_offsets(data)
 
     if options.lowreq:
-        struct.pack_into("<i", data, base + OFF_VRAM, options.vram)
-        struct.pack_into("<i", data, base + OFF_RAM, options.ram)
-        struct.pack_into("<i", data, base + OFF_AVAIL, options.avail)
-        data[base + OFF_THREADS] = 0x16 + options.threads  # ldc.i4.<n>
+        struct.pack_into("<i", data, at["vram"], options.vram)
+        struct.pack_into("<i", data, at["ram"], options.ram)
+        struct.pack_into("<i", data, at["avail"], options.avail)
+        data[at["threads"]] = 0x16 + options.threads  # ldc.i4.<n>
         if options.allow_cpu:
-            data[base + OFF_GPU_AND + 1] = 0x17  # ldloc.0 -> ldc.i4.1: GPU no longer required (backend "CPU")
+            data[at["gpu_and"] + 1] = 0x17  # ldloc.0 -> ldc.i4.1: GPU no longer required (backend "CPU")
         log("Hardware check: VRAM>=%d MiB, RAM>=%d MiB, free>=%d MiB, threads>=%d%s"
             % (options.vram, options.ram, options.avail, options.threads, ", CPU allowed" if options.allow_cpu else ""))
 
     if options.remote:
         # ldarg.0 ; ldloc.0 -> ldc.i4.1 ; ret   => always eligible (the server does the work)
-        data[base + OFF_GPU_AND:base + OFF_GPU_AND + 2] = b"\x17\x2A"
+        data[at["gpu_and"]:at["gpu_and"] + 2] = b"\x17\x2A"
         matches = list(VERIFIED_RE.finditer(bytes(data)))
         if len(matches) != 1:
             raise PatchError("Model check in RefreshPreference not found - unsupported game version.")
-        at = matches[0].start(2)
-        data[at:at + 2] = b"\x26\x00"  # brfalse.s -> pop ; nop  => model counts as installed, no 2 GB download
+        pos = matches[0].start(2)
+        data[pos:pos + 2] = b"\x26\x00"  # brfalse.s -> pop ; nop  => model counts as installed, no 2 GB download
         log("Hardware check disabled, model download skipped (remote TTS)")
 
     if options.timeouts:

@@ -124,15 +124,23 @@ and calls `QueueInference(samples, isFinal)`:
 
 ```
 useMoonshine          = WindowsSpeechCompatibility.UseMoonshine(lang)
-                      = PreferMoonshine && (lang == "en" || (!arm64 && SupportsLanguage(lang)))
+                      = !WantsBackendRecognition && PreferMoonshine
+                        && (lang == "en" || (!arm64 && SupportsLanguage(lang)))
 useStreamingMoonshine = useMoonshine && MoonshineStreamingRuntime.SupportsLanguage(lang)   // ar de ja zh es
 ```
 
 With `useStreamingMoonshine` the pipeline starts
 `new ArmSpeechWorkerClient(StreamingAssets/Moonshine/runtime, "X64")` and calls
 `TranscribeAsync(ModelRoot(lang), lang, samples)` (time limit 120 s). Patch 3 makes `PreferMoonshine`
-and `SupportsLanguage` return `true` and replaces the helper process. The removed Gladia provider
-only survives as the constant `PauseMenuToolkitController.RemovedSpeechRecognition = "Gladia"`.
+and `SupportsLanguage` return `true` and replaces the helper process.
+
+Since the November 12, 2026 build the game has its own cloud recognition through its backend
+(providers `DeepInfraWhisperTurbo` and `InworldSTT`, billed as AI credits).
+`WantsBackendRecognition = IsBackendRecognition(RecognitionPreference) || CloudFallbackRequired`.
+When it is true, `RunInferenceAsync` returns right away and `KolkataPlayerVoice` streams the microphone
+to the backend instead. The game switches to it on its own (`CloudFallbackRequired`) after Whisper
+or Moonshine failed. Patch 3 therefore also makes `get_WantsBackendRecognition` return `false`
+(older builds don't have the method; the patcher skips it there).
 
 Helper protocol (`Kolkata.Speech.ArmSpeechProtocol`; integers little endian, text = `i32` byte
 length + UTF-8):

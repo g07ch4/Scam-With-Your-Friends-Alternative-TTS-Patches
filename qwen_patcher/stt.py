@@ -8,6 +8,8 @@ can be replaced by GladiaSttWorker.exe, which sends each utterance to Gladia.
 ScriptsAssDef.dll changes (all same-length IL edits):
   * WindowsSpeechCompatibility.get_PreferMoonshine -> always true (Whisper is never used)
   * MoonshineStreamingRuntime.SupportsLanguage      -> always true (the helper handles every language)
+  * WindowsSpeechCompatibility.get_WantsBackendRecognition -> always false (builds since Nov 2026: the
+    game's own cloud recognition, which would bypass the helper, is never used)
   * WhisperVcPipeline.QueueInference                 -> returns early for partial (non-final) requests,
     so each utterance is sent to Gladia once instead of every partialIntervalSeconds (optional).
 """
@@ -20,9 +22,14 @@ import struct
 from .core import PatchError, build_worker, sha256
 from .paths import BUNDLED_STT_WORKER, STT_WORKER_SOURCE
 
-# get_PreferMoonshine: call IsWindowsArm64 ; brtrue IL_008C ; ldsfld whisperFailed ; brtrue.s IL_008A ;
+# get_PreferMoonshine: call IsWindowsArm64 ; brtrue ; ldsfld whisperFailed ; brtrue(.s) ;
 #                      call get_RecognitionPreference ; ldstr "Moonshine" ; call op_Equality ; brtrue.s
-PREFER_RE = re.compile(rb"\x28....\x3A\x82\x00\x00\x00\x7E....\x2D\x79\x28....\x72....\x28....\x2D\x68", re.S)
+# (branch distances differ between game builds; the ldstr must resolve to "Moonshine")
+PREFER_RE = re.compile(rb"\x28....\x3A....\x7E....(?:\x2D.|\x3A....)\x28....\x72(....)\x28....\x2D.", re.S)
+# get_WantsBackendRecognition (tiny method, builds since Nov 2026):
+#   call get_RecognitionPreference ; call IsBackendRecognition ; brtrue.s +6 ; call get_CloudFallbackRequired ; ret ;
+#   ldc.i4.1 ; ret
+BACKEND_RE = re.compile(rb"\x52(\x28....)\x28....\x2D\x06\x28....\x2A\x17\x2A", re.S)
 # SupportsLanguage: lang == "ar" || "de" || "ja" || "zh" || lang == "es"
 SUPPORTS_RE = re.compile(rb"\x02\x72(....)\x28....\x2D\x33\x02\x72(....)\x28....\x2D\x26\x02\x72(....)\x28....\x2D\x19"
                          rb"\x02\x72(....)\x28....\x2D\x0C\x02\x72(....)\x28....\x2A\x17\x2A", re.S)
@@ -96,8 +103,15 @@ def patch_scripts_dll(data, options, log=print):
     raw = bytes(data)
     data = bytearray(data)
 
-    at = _one(PREFER_RE, raw, "WindowsSpeechCompatibility.PreferMoonshine").start()
+    prefer = [m for m in PREFER_RE.finditer(raw) if _user_string(raw, struct.unpack("<I", m.group(1))[0]) == "Moonshine"]
+    if len(prefer) != 1:
+        raise PatchError("WindowsSpeechCompatibility.PreferMoonshine not found - unsupported game version.")
+    at = prefer[0].start()
     data[at:at + 2] = b"\x17\x2A"  # ldc.i4.1 ; ret
+
+    if b"IsBackendRecognition\0" in raw:
+        at = _one(BACKEND_RE, raw, "WindowsSpeechCompatibility.WantsBackendRecognition").start(1)
+        data[at:at + 2] = b"\x16\x2A"  # ldc.i4.0 ; ret: never hand the microphone to the game's cloud recognition
 
     supports = [m for m in SUPPORTS_RE.finditer(raw)
                 if tuple(_user_string(raw, struct.unpack("<I", m.group(i))[0]) for i in range(1, 6)) == SUPPORTS_LANGUAGES]

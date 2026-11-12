@@ -1,10 +1,10 @@
 # Manual installation (without Python)
 
-These instructions apply to the game build from **October 29, 2026**, which you can
+These instructions apply to the game build from **November 12, 2026**, which you can
 recognize by this SHA-256 of `Assembly-CSharp.dll`:
 
 ```
-bc111bc14cd7552b0c8de4d21a686728aaeaa23b3713dc1642bf36c0b5b03528
+cfd7d8649ee50d09b8e32559a70fe8b882f03013157af7d4ce25dc744e486b5e
 ```
 
 PowerShell shows you the hash:
@@ -45,11 +45,11 @@ Open `Assembly-CSharp.dll` in HxD. Use **Search → Replace** (Ctrl+R) with the 
 
 | | Hex |
 |---|---|
-| Find | `02 06 5F 2C 19 03 20 98 3A 00 00 32 11 04 20 00 20 00 00 6A 32 08 05 1A FE 04` |
-| Replace | `02 06 5F 2C 19 03 20 58 1B 00 00 32 11 04 20 00 0C 00 00 6A 32 08 05 18 FE 04` |
+| Find | `02 06 5F 2C 1D 03 20 98 3A 00 00 32 15 0E 09 2C 09 04 20 00 20 00 00 6A 32 08 05 1A FE 04` |
+| Replace | `02 06 5F 2C 1D 03 20 58 1B 00 00 32 15 0E 09 2C 09 04 20 00 0C 00 00 6A 32 08 05 18 FE 04` |
 
 Optional, **also without a GPU (CPU)**: in the replacement value of b), change the second
-byte from `06` to `17`, i.e. `02 17 5F 2C 19 …`.
+byte from `06` to `17`, i.e. `02 17 5F 2C 1D …`.
 
 Custom values: the numbers are stored as 32-bit little-endian in the code.
 - Example: 4096 = `0x1000` → `00 10 00 00`.
@@ -72,15 +72,15 @@ removes the hardware check completely anyway.
 
 | | Hex |
 |---|---|
-| Find | `02 06 5F 2C 19 03 20 98 3A 00 00 32 11 04 20 00 20 00 00 6A 32 08 05 1A FE 04` |
-| Replace | `17 2A 5F 2C 19 03 20 98 3A 00 00 32 11 04 20 00 20 00 00 6A 32 08 05 1A FE 04` |
+| Find | `02 06 5F 2C 1D 03 20 98 3A 00 00 32 15 0E 09 2C 09 04 20 00 20 00 00 6A 32 08 05 1A FE 04` |
+| Replace | `17 2A 5F 2C 1D 03 20 98 3A 00 00 32 15 0E 09 2C 09 04 20 00 20 00 00 6A 32 08 05 1A FE 04` |
 
 **Skip the model download**
 
 | | Hex |
 |---|---|
-| Find | `7E 9E 13 00 04 2C 0B 19 28 8B 18 00 06` |
-| Replace | `7E 9E 13 00 04 26 00 19 28 8B 18 00 06` |
+| Find | `7E 28 16 00 04 2C 0B 19 28 97 1A 00 06` |
+| Replace | `7E 28 16 00 04 26 00 19 28 97 1A 00 06` |
 
 ### 2b. Replace the worker
 
@@ -134,36 +134,36 @@ between audio chunks. Apply them on top of patch 1 or 2; each search must have e
 
 | | Hex |
 |---|---|
-| Find | `17 28 C3 0F 00 0A 07 23 00 00 00 00 00 00 34 40 28 B5 01 00 0A 73 FF 01 00 0A 7D` |
-| Replace | `17 28 C3 0F 00 0A 07 23 00 00 00 00 00 00 5E 40 28 B5 01 00 0A 73 FF 01 00 0A 7D` |
+| Find | `17 28 B9 10 00 0A 07 23 00 00 00 00 00 00 34 40 28 F2 01 00 0A 73 51 02 00 0A 7D` |
+| Replace | `17 28 B9 10 00 0A 07 23 00 00 00 00 00 00 5E 40 28 F2 01 00 0A 73 51 02 00 0A 7D` |
 
 **Preparation, deadline (20 → 120 s)**
 
 | | Hex |
 |---|---|
-| Find | `08 28 B4 01 00 0A 23 00 00 00 00 00 00 34 40 58 7D` |
-| Replace | `08 28 B4 01 00 0A 23 00 00 00 00 00 00 5E 40 58 7D` |
+| Find | `7B 93 16 00 04 28 B8 01 00 0A 23 00 00 00 00 00 00 34 40 58 7D` |
+| Replace | `7B 93 16 00 04 28 B8 01 00 0A 23 00 00 00 00 00 00 5E 40 58 7D` |
 
 **First audio (20 → 60 s)**
 
 | | Hex |
 |---|---|
-| Find | `02 28 B4 01 00 0A 23 00 00 00 00 00 00 34 40 58 7D E4 13 00 04 02 06 FE 06` |
-| Replace | `02 28 B4 01 00 0A 23 00 00 00 00 00 00 4E 40 58 7D E4 13 00 04 02 06 FE 06` |
+| Find | `02 28 B8 01 00 0A 23 00 00 00 00 00 00 34 40 58 7D 70 16 00 04 02 06 FE 06` |
+| Replace | `02 28 B8 01 00 0A 23 00 00 00 00 00 00 4E 40 58 7D 70 16 00 04 02 06 FE 06` |
 
 **Synthesis (30 → 90 s)**
 
 | | Hex |
 |---|---|
-| Find | `7D F7 13 00 04 02 23 00 00 00 00 00 00 3E 40 28 B5 01 00 0A 73 FF 01 00 0A 7D` |
-| Replace | `7D F7 13 00 04 02 23 00 00 00 00 00 80 56 40 28 B5 01 00 0A 73 FF 01 00 0A 7D` |
+| Find | `7D 85 16 00 04 02 23 00 00 00 00 00 00 3E 40 28 F2 01 00 0A 73 51 02 00 0A 7D` |
+| Replace | `7D 85 16 00 04 02 23 00 00 00 00 00 80 56 40 28 F2 01 00 0A 73 51 02 00 0A 7D` |
 
 **Between audio chunks (30 → 60 s)**
 
 | | Hex |
 |---|---|
-| Find | `7B FB 13 00 04 23 00 00 00 00 00 00 3E 40 28 B5 01 00 0A 6F C8 01 00 0A 02 03 02 7B` |
-| Replace | `7B FB 13 00 04 23 00 00 00 00 00 00 4E 40 28 B5 01 00 0A 6F C8 01 00 0A 02 03 02 7B` |
+| Find | `7B 89 16 00 04 23 00 00 00 00 00 00 3E 40 28 F2 01 00 0A 6F 12 02 00 0A 02 03 02 7B` |
+| Replace | `7B 89 16 00 04 23 00 00 00 00 00 00 4E 40 28 F2 01 00 0A 6F 12 02 00 0A 02 03 02 7B` |
 
 ## 4. Patch 3 – Speech recognition through Gladia
 
@@ -176,28 +176,35 @@ Make backups first (add `.orig`):
 ### 4a. Patch `ScriptsAssDef.dll`
 
 Open it in HxD and use **Search → Replace** with **Hex-values**; each search must have exactly
-**1** match. The values below belong to the October 29, 2026 build.
+**1** match. The values below belong to the November 12, 2026 build.
 
 **Always use the Moonshine helper** (`WindowsSpeechCompatibility.PreferMoonshine`)
 
 | | Hex |
 |---|---|
-| Find | `28 5D 3A 00 06 3A 82 00 00 00 7E E5` |
-| Replace | `17 2A 3A 00 06 3A 82 00 00 00 7E E5` |
+| Find | `28 C3 3A 00 06 3A 8E 00 00 00 7E 85` |
+| Replace | `17 2A 3A 00 06 3A 8E 00 00 00 7E 85` |
 
 **The helper handles every language** (`MoonshineStreamingRuntime.SupportsLanguage`)
 
 | | Hex |
 |---|---|
-| Find | `02 72 FA 54 00 70 28 13 00 00 0A 2D 33 02` |
-| Replace | `17 2A FA 54 00 70 28 13 00 00 0A 2D 33 02` |
+| Find | `02 72 20 55 00 70 28 13 00 00 0A 2D 33 02` |
+| Replace | `17 2A 20 55 00 70 28 13 00 00 0A 2D 33 02` |
+
+**Never use the game's cloud recognition** (`WindowsSpeechCompatibility.WantsBackendRecognition`)
+
+| | Hex |
+|---|---|
+| Find | `52 28 DD 3A 00 06 28 C6 3A 00 06 2D 06 28 C7 3A 00 06 2A 17 2A` |
+| Replace | `52 16 2A 3A 00 06 28 C6 3A 00 06 2D 06 28 C7 3A 00 06 2A 17 2A` |
 
 **No partial transcripts** (optional, recommended: one Gladia request per utterance)
 
 | | Hex |
 |---|---|
-| Find | `28 5D 3A 00 06 2C 09 02 7B 5E 2C 00 04 2C 01 2A 04 2D 16 02 7B 50 2C 00 04` |
-| Replace | `28 5D 3A 00 06 2C 09 02 7B 5E 2C 00 04 2C 01 2A 04 2D 16 2A 7B 50 2C 00 04` |
+| Find | `28 D9 3A 00 06 2C 09 02 7B E2 2C 00 04 2C 01 2A 04 2D 16 02 7B D3 2C 00 04` |
+| Replace | `28 D9 3A 00 06 2C 09 02 7B E2 2C 00 04 2C 01 2A 04 2D 16 2A 7B D3 2C 00 04` |
 
 ### 4b. Replace the helper
 

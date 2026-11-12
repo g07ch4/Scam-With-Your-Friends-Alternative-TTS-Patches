@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from qwen_patcher import build_worker, find_game_dirs  # noqa: E402
 from qwen_patcher.core import sha256  # noqa: E402
 from qwen_patcher.paths import STT_WORKER_SOURCE  # noqa: E402
-from qwen_patcher.stt import SttGame, SttOptions, test_key  # noqa: E402
+from qwen_patcher.stt import BACKEND_RE, SttGame, SttOptions, test_key  # noqa: E402
 
 KEY = "test-key"
 
@@ -287,6 +287,11 @@ FILES = ("Scam With Your Friends_Data/Managed/ScriptsAssDef.dll", RUNTIME + "Arm
 EXTRA = (RUNTIME + "ArmSpeechNative.dll", RUNTIME + "moonshine-LICENSE.txt")
 
 
+def backend_bytes(dll):
+    """Bytes changed by the WantsBackendRecognition patch (only in builds that have it)."""
+    return 2 if b"IsBackendRecognition\0" in dll else 0
+
+
 @unittest.skipUnless(SOURCE, "game not installed")
 class SttPatchTest(unittest.TestCase):
     @classmethod
@@ -314,7 +319,7 @@ class SttPatchTest(unittest.TestCase):
         with open(self.game.dll + ".orig", "rb") as a, open(self.game.dll, "rb") as b:
             before, after = a.read(), b.read()
         self.assertEqual(len(before), len(after))
-        self.assertEqual(sum(x != y for x, y in zip(before, after)), 5)
+        self.assertEqual(sum(x != y for x, y in zip(before, after)), 5 + backend_bytes(before))
         with open(self.game.manifest, encoding="utf-8") as f:
             manifest = json.load(f)
         self.assertEqual((manifest["protocol"], manifest["architecture"]), (1, "X64"))
@@ -330,7 +335,19 @@ class SttPatchTest(unittest.TestCase):
     def test_partials_option(self):
         self.game.install(SttOptions(partials=True), {"api_key": "k"}, self.worker, log=self.quiet)
         with open(self.game.dll + ".orig", "rb") as a, open(self.game.dll, "rb") as b:
-            self.assertEqual(sum(x != y for x, y in zip(a.read(), b.read())), 4)
+            before, after = a.read(), b.read()
+        self.assertEqual(sum(x != y for x, y in zip(before, after)), 4 + backend_bytes(before))
+
+    def test_backend_recognition_disabled(self):
+        with open(self.game.dll, "rb") as f:
+            before = f.read()
+        if not backend_bytes(before):
+            self.skipTest("game build without backend speech recognition")
+        self.game.install(SttOptions(), {"api_key": "k"}, self.worker, log=self.quiet)
+        with open(self.game.dll, "rb") as f:
+            after = f.read()
+        at = BACKEND_RE.search(before).start(1)
+        self.assertEqual(after[at:at + 2], b"\x16\x2A")  # get_WantsBackendRecognition -> return false
 
     def test_requires_key(self):
         with self.assertRaises(Exception):
